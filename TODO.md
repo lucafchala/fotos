@@ -293,6 +293,12 @@ configuração não-versionada que o pipeline depende precisa estar no
 `wrangler.toml` e ser conferida em runtime**. Declarar não basta quando o
 comando que aplica não é o comando que roda.
 
+Repetiu-se com os crons (19/11/2026): `crons = ["*/5 * * * *"]` ficou um mês
+no `wrangler.toml` sem chegar à Cloudflare, que seguiu só com o das 03:00.
+Desde a 4.9.1 o deploy confere e aplica os crons pela API
+(`scripts/aplica-crons.mjs`). Ao declarar outra configuração não-versionada,
+confira se algum passo do deploy a aplica de fato.
+
 O portão em si funcionou como projetado — recusou promover o que não pôde
 verificar, e produção seguiu na versão anterior. Um portão que falha fechado
 falhando é um portão funcionando.

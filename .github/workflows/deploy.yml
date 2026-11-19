@@ -423,6 +423,18 @@ jobs:
             --message "CI $GITHUB_RUN_ID — $(git log -1 --pretty=%s | head -c 80)"
           echo "promoted=true" >> "$GITHUB_OUTPUT"
 
+      # `versions upload`/`versions deploy` NÃO aplicam `[triggers] crons` (é
+      # configuração não-versionada, como `preview_urls`): o `*/5` ficou no
+      # wrangler.toml de 18/10 a 19/11/2026 sem nunca chegar à Cloudflare. Este
+      # passo confere os agendamentos pela API e aplica os do wrangler.toml se
+      # divergirem — só eles, sem rotas nem workers_dev. Ver o script.
+      - name: Aplicar os crons do wrangler.toml
+        if: ${{ steps.promote.outputs.promoted == 'true' || inputs.unversioned }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/aplica-crons.mjs
+
       # `sleep 20` era um chute: curto demais numa propagação lenta (falso
       # vermelho) e desperdício quando já estava pronto. Isto espera pelo SINAL,
       # e o número de tentativas fica registrado.

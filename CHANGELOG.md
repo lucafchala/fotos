@@ -18,7 +18,14 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.9.0] — ainda não publicada
+## [4.9.1] — ainda não publicada
+
+Correção: os crons do `wrangler.toml` passam a chegar à Cloudflare.
+
+- **O cron de 5 em 5 minutos nunca tinha sido aplicado.** O `*/5 * * * *` entrou no `wrangler.toml` em 18/10/2026, mas o deploy publica com `versions upload` + `versions deploy`, e nenhum dos dois aplica `[triggers] crons` (é configuração não-versionada, como o `preview_urls`). O Worker continuou só com o cron das 03:00: o batimento do Kuma, o aquecimento do álbum, os avisos de fotos novas, o IndexNow e a pré-cópia para o R2 rodavam uma vez por dia. Na 4.9.0 isso travou o R2: sem a medição do cron, o teto (que falha fechado) não deixou gravar nada. Achado pelo Cowork em Settings → Trigger Events.
+- **O deploy agora confere e aplica os crons** (`scripts/aplica-crons.mjs`, passo "Aplicar os crons do wrangler.toml" no `deploy.yml`, logo depois da promoção; o que vai para a API é a constante `CRONS_DO_WORKER`, conferida contra o `wrangler.toml`). Lê os agendamentos pela API, e se divergirem do `wrangler.toml` troca só eles (não rotas nem `workers_dev`) e relê para conferir. Divergência que não se resolve deixa o deploy vermelho.
+
+## [4.9.0] — 2026-11-19
 
 Menor: o álbum inteiro no R2 antes do lançamento (pedido do dono, 19/11/2026:
 a conta do Drive é pessoal e trava com muita gente baixando).
