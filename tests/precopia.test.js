@@ -206,4 +206,24 @@ describe('teto do R2', () => {
     const r = await precopiaAlbuns(env, [ALBUM], { agora: AGORA + R2_MEDIR_A_CADA_MS });
     expect(r).toMatchObject({ copiados: 4, completo: true });
   });
+
+  it('bordas: sem R2 ou KV, sem espaço e sem resumo; R2 que não lista, pré-cópia não roda', async () => {
+    expect(await r2TemEspaco(null)).toBe(false);
+    expect(await r2TemEspaco({ FOTOS_R2: {} })).toBe(false);
+    expect(await resumoDoR2({})).toBeNull();
+    const kvQuebrado = { get: async () => { throw new Error('KV fora'); } };
+    expect(await r2TemEspaco({ FOTOS: kvQuebrado, FOTOS_R2: {} })).toBe(false);
+    expect(await resumoDoR2({ FOTOS: kvQuebrado, FOTOS_R2: {} })).toMatchObject({ usoGb: 0, medidoEm: null, cheio: false });
+    limpaMemoDoR2();
+    const env = ambiente({ FOTOS_R2: { list: async () => { throw new Error('R2 fora'); } } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await precopiaAlbuns(env, [ALBUM], { agora: AGORA })).toBeNull();
+    expect(baixados).toEqual([]);
+  });
+
+  it('estado ilegível no KV conta como não começado no andamento', async () => {
+    const env = ambiente();
+    await env.FOTOS.put('precopia:entrenos2026', '{quebrado');
+    expect(await andamentoDaPrecopia(env)).toEqual({ albuns: 1, completos: 0, copiados: 0, noR2: 0 });
+  });
 });
