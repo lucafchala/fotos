@@ -1,4 +1,4 @@
-import { PERSON_LD, jsonParaScript, footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML, escape } from '../utils.js';
+import { PERSON_LD, jsonParaScript, footerLegalLinksHTML, FOOTER_CSS, fontPreloadHTML, fontFaceCSS, socialMetaHTML, escape } from '../utils.js';
 
 // "Sobre" (About) page — mirrors privacy.js structure (same head, dark
 // theme, back link, footer). The only dynamic content is the agenda badge
@@ -48,7 +48,7 @@ export function aboutHTML(agenda = '', nonce = '') {
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-heading:#e0d8d0; --text-strong:#d0c8be;
       --text-muted:#999; --text-dim:#8c8c8c; --text-dim-2:#888888; --border-dim:#1e1e1e; --border-hair:#141414;
-      --footer-link:#888; --accent:#c0a060;
+      --footer-link:#888; --accent:#c0a060; --ease:cubic-bezier(.22,1,.36,1);
       --ok-border:#1a2e1a; --ok-text:#4a8a4a; --ok-border-hover:#2a4a2a; --ok-text-hover:#6aaa6a; --ok-bg-hover:#0a120a;
       --btn-border:#2a2a2a; --btn-text:#888; --btn-border-hover:#555; --btn-text-hover:#ccc; --btn-bg-hover:#111;
     }
@@ -64,44 +64,42 @@ export function aboutHTML(agenda = '', nonce = '') {
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.375rem;min-height:44px;text-decoration:none;color:var(--text-dim-2);font-size:.875rem;letter-spacing:0;transition:color .16s var(--ease)}
     .back:hover{color:var(--text-2)}
-    .back svg{width:14px;height:14px}
+    .back svg{width:16px;height:16px}
     main{max-width:680px;margin:0 auto;padding:2rem 1.5rem 6rem}
-    h1{font-size:1.5rem;font-weight:600;margin-bottom:.4rem}
-    .tagline{font-size:.85rem;color:var(--text-muted);margin-bottom:2.25rem;letter-spacing:.02em}
-    .agenda-selo{display:inline-block;margin:-1.25rem 0 2.25rem;padding:.3rem .8rem;border:1px solid var(--accent);border-radius:999px;color:var(--accent);font-size:.75rem;letter-spacing:.03em}
-    h2{font-size:1rem;font-weight:600;margin:2.25rem 0 .75rem;color:var(--text-heading)}
-    p,li{font-size:.9rem;line-height:1.75;color:var(--text-2)}
+    h1{font-size:1.75rem;font-weight:500;line-height:1.15;margin-bottom:.5rem}
+    .tagline{font-size:.9375rem;color:var(--text-muted);margin-bottom:2rem;letter-spacing:0}
+    .agenda-selo{display:inline-block;margin:-1rem 0 2rem;padding:.25rem .75rem;border:1px solid var(--border-dim);border-radius:999px;color:var(--text-muted);font-size:.8125rem;letter-spacing:0}
+    h2{font-size:1.125rem;font-weight:500;margin:2.5rem 0 .75rem;color:var(--text-heading)}
+    p,li{font-size:.9375rem;line-height:1.75;color:var(--text-2)}
     p{margin-bottom:.75rem}
     ul{margin:.25rem 0 .75rem;padding-left:1.25rem}
     li{margin-bottom:.4rem}
-    strong{color:var(--text-strong);font-weight:600}
+    strong{color:var(--text-strong);font-weight:500}
     a{color:var(--accent);text-decoration:none}
     a:hover{text-decoration:underline}
-    .intro{font-size:.92rem;color:var(--text-muted);line-height:1.7;margin-bottom:.5rem}
+    .intro{font-size:1rem;color:var(--text-muted);line-height:1.7;margin-bottom:.5rem}
     .cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.25rem}
-    .cta-btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.2rem;border-radius:8px;font-size:.82rem;font-weight:500;text-decoration:none;letter-spacing:.02em;transition:border-color .2s,color .2s,background .2s;white-space:nowrap;border:1px solid}
+    .cta-btn{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0 1rem;border-radius:10px;font-size:.875rem;font-weight:500;text-decoration:none;letter-spacing:0;transition:border-color .16s var(--ease),color .16s var(--ease),background .16s var(--ease);white-space:nowrap;border:1px solid}
     .cta-btn:hover{text-decoration:none}
     .btn-whatsapp{border-color:var(--ok-border);color:var(--ok-text)}
     .btn-whatsapp:hover{border-color:var(--ok-border-hover);color:var(--ok-text-hover);background:var(--ok-bg-hover)}
     .btn-default{border-color:var(--btn-border);color:var(--btn-text)}
     .btn-default:hover{border-color:var(--btn-border-hover);color:var(--btn-text-hover);background:var(--btn-bg-hover)}
-    .cta-btn svg{width:14px;height:14px;flex-shrink:0}
-    .note{font-size:.82rem;color:var(--text-dim);line-height:1.6;border-left:2px solid var(--border-dim);padding-left:1rem;margin:1.5rem 0 0}
-    footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-hair);display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
-    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    .cta-btn svg{width:16px;height:16px;flex-shrink:0}
+    .note{font-size:.875rem;color:var(--text-dim);line-height:1.6;border-left:1px solid var(--border-dim);padding-left:1rem;margin:1.5rem 0 0}
+    footer{text-align:center;padding:2rem 1rem 2.5rem;border-top:1px solid var(--border-hair);display:flex;flex-direction:column;align-items:center}
+    footer a{color:var(--footer-link);font-size:.8125rem;text-decoration:none;letter-spacing:0;transition:color .2s}
+    footer > a{display:inline-flex;align-items:center;min-height:44px}
     footer a:hover{color:var(--text-2)}
-    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
-    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    .legal-link:hover{color:var(--text-2)}
-    .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
+    ${FOOTER_CSS}
   </style>
 </head>
 <body>
   <header>
     <a href="/" class="back">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
       Voltar
     </a>
   </header>
@@ -110,7 +108,7 @@ export function aboutHTML(agenda = '', nonce = '') {
     <p class="tagline">Luca F. Chala · fotografia de formaturas, casamentos, ensaios e eventos</p>
     ${agenda ? `<p class="agenda-selo">${escape(agenda)}</p>` : ''}
 
-    <p class="intro">Olá! Sou <strong>Luca F. Chala</strong>, fotógrafo. Registro formaturas, casamentos,
+    <p class="intro">Olá, sou <strong>Luca F. Chala</strong>, fotógrafo. Registro formaturas, casamentos,
     ensaios e eventos com um olhar atento aos momentos que costumam passar despercebidos: as risadas,
     os abraços e os detalhes que tornam cada história única.</p>
 
@@ -133,15 +131,15 @@ export function aboutHTML(agenda = '', nonce = '') {
     <p>Para orçamentos, datas disponíveis ou qualquer dúvida, fale comigo. Respondo o mais rápido que conseguir.</p>
     <div class="cta">
       <a href="https://wa.me/5511989211178" target="_blank" rel="noopener" class="cta-btn btn-whatsapp">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 104 16.1L2 22z"/></svg>
         WhatsApp
       </a>
       <a href="https://instagram.com/lucafchala" target="_blank" rel="noopener" class="cta-btn btn-default">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
         @lucafchala
       </a>
       <a href="/suporte?tema=orcamento" class="cta-btn btn-default">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="2,4 12,13 22,4"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="2,4 12,13 22,4"/></svg>
         Pedir orçamento
       </a>
     </div>

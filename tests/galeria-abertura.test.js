@@ -234,13 +234,16 @@ describe('abertura com muitos eventos (v3.8.2)', () => {
     }
   });
 
-  it('o campo de procurar fica logo abaixo dos botões (um só); o resultado, no corpo', () => {
+  it('o campo de procurar abre a linha do tempo, no corpo (um só); o resultado vem logo depois', () => {
     expect(h.match(/id="bf-form"/g)).toHaveLength(1);
     const botoes = h.indexOf('<div class="al-btns">');
     const campo = h.indexOf('id="bf-form"');
-    expect(campo).toBeGreaterThan(botoes);
-    expect(campo).toBeLessThan(h.indexOf('</header>'));
-    expect(h.indexOf('id="bf-res"')).toBeGreaterThan(h.indexOf('<main'));
+    expect(campo).toBeGreaterThan(h.indexOf('<main'));
+    expect(campo).toBeGreaterThan(h.indexOf('</header>'));
+    expect(campo).toBeLessThan(h.indexOf('id="eventos"'));
+    expect(h).toContain('<section class="al-sec al-procurar"');
+    expect(botoes).toBeLessThan(h.indexOf('</header>'));
+    expect(h.indexOf('id="bf-res"')).toBeGreaterThan(campo);
     expect(pagina()).not.toContain('id="bf-form"');
   });
 

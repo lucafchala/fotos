@@ -35,7 +35,8 @@ export function emBreveHTML({ titulo, linha, assinatura = '', contagem = '', non
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#16204d">
+<meta name="theme-color" content="#243580">
+<meta name="color-scheme" content="dark">
 <title>${escape(titulo)} · em breve</title>
 <link rel="icon" type="image/svg+xml" href="/icon-entrenos.svg">
 <meta property="og:type" content="website">
@@ -48,25 +49,32 @@ export function emBreveHTML({ titulo, linha, assinatura = '', contagem = '', non
 <style>
 ${fontFaceAlbumCSS()}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{color-scheme:dark}
 html,body{height:100%}
-body{background:radial-gradient(ellipse at 50% -10%,#2b3f94 0%,#1a2560 38%,#0d1230 80%);color:#f3ede3;font-family:'Open Sans',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
-main{max-width:34rem}
-.k{font-size:.75rem;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#f9de4b;line-height:1.7}
-h1{font-family:'Open Sans',system-ui,sans-serif;font-weight:800;font-size:clamp(3.4rem,15vw,7rem);line-height:.95;letter-spacing:-.02em;margin:.6rem 0 1.2rem}
-p{font-size:clamp(1.02rem,2.6vw,1.2rem);line-height:1.6;color:#d6dbef}
-.l{display:block;width:3rem;height:2px;background:#f9de4b;margin:1.8rem auto 0;border-radius:2px}
-small{display:block;margin-top:1.2rem;font-size:.85rem;color:#aab3d6}
-.q{margin-top:1.4rem;font-weight:600;color:#f9de4b}
-.c{display:flex;justify-content:center;gap:.9rem;margin-top:.7rem;font-variant-numeric:tabular-nums}
-.c span{display:flex;flex-direction:column;align-items:center;min-width:3.4rem}
+body{background:#243580;color:#f3ede3;font-family:'Open Sans',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
+main{max-width:34rem;animation:eb-entra .4s cubic-bezier(.22,1,.36,1) both}
+@keyframes eb-entra{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+::selection{background:#f9de4b;color:#16204d}
+:focus-visible{outline:2px solid #f9de4b;outline-offset:3px}
+.k{display:block;font-size:.75rem;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:#f9de4b;line-height:1.7}
+h1{font-family:'Open Sans',system-ui,sans-serif;font-weight:800;font-size:clamp(3.4rem,15vw,7rem);line-height:.95;letter-spacing:-.02em;margin:.6rem 0 1.2rem;text-wrap:balance}
+p{font-size:clamp(1rem,2.6vw,1.125rem);line-height:1.6;color:#d6dbef}
+.l{display:block;width:3rem;height:2px;background:#f9de4b;margin:1.75rem auto 0;border-radius:2px}
+small{display:block;margin-top:1rem;font-size:.875rem;line-height:1.5;color:#c3cbe8}
+.q{margin-top:1.5rem;font-weight:600;color:#f9de4b}
+.c{display:flex;justify-content:center;gap:1rem;margin-top:.75rem;font-variant-numeric:tabular-nums}
+.c span{display:flex;flex-direction:column;align-items:center;min-width:3.5rem}
 .c b{font-size:clamp(1.8rem,7vw,2.6rem);font-weight:800;line-height:1.1}
-.c i{font-style:normal;font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:#aab3d6}
+.c i{font-style:normal;font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:#c3cbe8}
 h1{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
-.pv{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;margin-top:1.4rem}
+.pv{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;margin-top:1.5rem}
 .pv[hidden]{display:none}
-.pv input{min-height:44px;width:min(16rem,100%);padding:0 1rem;border-radius:999px;border:1px solid #f9de4b;background:rgba(13,18,48,.6);color:#f3ede3;font:inherit;text-align:center}
-.pv button{min-height:44px;padding:0 1.2rem;border-radius:999px;border:0;background:#f9de4b;color:#16204d;font:inherit;font-weight:700;cursor:pointer}
-.pv p{flex-basis:100%;min-height:1.2em;font-size:.85rem;color:#f9de4b}
+.pv input{min-height:44px;width:min(16rem,100%);padding:0 1rem;border-radius:999px;border:1px solid #f9de4b;background:rgba(10,14,40,.4);color:#f3ede3;font:inherit;text-align:center;transition:border-color .15s cubic-bezier(.22,1,.36,1)}
+.pv input:focus{border-color:#f9de4b}
+.pv button{min-height:44px;padding:0 1.25rem;border-radius:999px;border:0;background:#f9de4b;color:#16204d;font:inherit;font-weight:600;cursor:pointer;transition:transform .15s cubic-bezier(.22,1,.36,1)}
+.pv button:active{transform:scale(.97)}
+.pv p{flex-basis:100%;min-height:1.25em;font-size:.875rem;color:#f9de4b}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition-duration:.01ms!important}}
 </style>
 </head>
 <body>
@@ -78,7 +86,7 @@ ${quando ? `<p class="q">Chega em ${escape(quando)}.</p>
 <div class="c" id="c" data-ate="${escape(new Date(Date.parse(contagem)).toISOString())}" aria-hidden="true"><span><b id="c-d">–</b><i>dias</i></span><span><b id="c-h">–</b><i>horas</i></span><span><b id="c-m">–</b><i>min</i></span><span><b id="c-s">–</b><i>seg</i></span></div>` : ''}
 ${comPrevia ? `<form class="pv" id="pv" data-slug="${escape(slug)}" hidden><input type="password" id="pv-senha" autocomplete="current-password" placeholder="Senha" aria-label="Senha da prévia" maxlength="100"><button type="submit">Entrar</button><p id="pv-msg" role="status"></p></form>` : ''}
 <span class="l" aria-hidden="true"></span>
-<small>${assinatura ? `${escape(assinatura)} · ` : ''}Volte em breve.</small>
+<small>${assinatura ? `${escape(assinatura)} · ` : ''}Volte em breve</small>
 </main>
 ${quando ? `<script nonce="${escape(nonce)}">${SCRIPT_CONTAGEM}</script>` : ''}
 ${comPrevia ? `<script nonce="${escape(nonce)}">${SCRIPT_PREVIA}</script>` : ''}

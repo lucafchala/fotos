@@ -18,7 +18,51 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.2.1] — ainda não publicada
+## [4.3.0] — ainda não publicada
+
+Menor: o fotos.lucafchala.com e o álbum Entre Nós com o visual revisado. Só
+aparência: rotas, ids, downloads, busca pelo rosto, envio e dados ficam iguais.
+Painel e páginas legais não mudam.
+
+- **fotos.lucafchala.com (início, projeto, galeria, sobre, equipamentos e
+  rodapé): polimento.** A paleta papel/preto com o marrom-dourado, a Inter e o
+  layout ficam. A data dos cards e do projeto vira a forma curta e tabular
+  ("27 Out 2026", nova `formatDateCurta` em `src/utils.js`). `formatDatePT`
+  não muda, porque alimenta títulos e descrições de SEO. Rótulos passam de
+  maiúsculas espaçadas para caixa normal, e "Em destaque" sai de cima da foto
+  para a linha da data. Os emojis e o ▯ das dicas viram ícones de traço
+  (16 px, cor do texto). A busca fica só "Buscar", e "Copiado! ✓" vira
+  "Copiado". No desktop, o aviso de cookies vai para o canto. O rodapé comum
+  agora tem CSS único (`FOOTER_CSS`).
+- **Álbum Entre Nós (em breve, abertura, eventos, /numeros, /ajuda): passe
+  completo dentro da marca.**
+  - Tipografia: só Open Sans, com títulos em peso 600. A Caveat continua
+    apenas no título da recordação, como o dono escolheu.
+  - Cores do Colégio mantidas como identidade: o amarelo sólido no botão
+    principal, no contorno do secundário, no traço curto sob os títulos de
+    seção (no lugar das etiquetas em maiúsculas, que ficam para leitor de
+    tela), na linha "Turma 2026 · Colégio Santa Cruz", nos anos e meses, nos
+    ícones, nos links da ajuda e no número principal do /numeros; o azul nas
+    barras, na linha do tempo e na linha do rodapé. Saem só as maiúsculas
+    espaçadas, o peso 800 e os degradês.
+  - Abertura: a foto da turma ganha um escurecimento neutro sob o texto.
+    "Achar minhas fotos pelo rosto" fica como botão principal e "Mandar suas
+    fotos" como secundário; o resto vira uma fileira de links discretos.
+  - "Procurar nas fotos" passa para o início da linha do tempo.
+  - /numeros: um número principal (fotos) e três menores.
+  - Rodapé no preto, sem itálico. "Em breve" sem foto e sem brilho radial.
+  - Os alvos de toque dos links da ajuda chegam a 44 px.
+- **Escolhas do dono, item por item (18/11/2026):**
+  - a data curta leva o mês com inicial maiúscula ("27 Out 2026");
+  - o card em destaque ganha borda e fundo levemente dourados, além do texto
+    "Em destaque";
+  - o campo "Buscar" do início usa a fonte da página (antes caía na fonte
+    padrão do navegador, mais achatada);
+  - o botão do WhatsApp continua verde;
+  - o título e a contagem do "Em breve" continuam grandes, em peso 800, com o
+    kicker e os rótulos em maiúsculas espaçadas.
+
+## [4.2.1] — 2026-11-19
 
 Política de Privacidade: o que a "busca nas fotos" faz. **Texto jurídico para
 o dono revisar antes do merge.**
@@ -41,7 +85,7 @@ o dono revisar antes do merge.**
 - **ROPA, seção 14:** a finalidade ainda dizia que a moderação escondia a
   foto sozinha; desde a 3.8.12 ela só avisa o controlador.
 
-## [4.2.0] — ainda não publicada
+## [4.2.0] — 2026-11-19
 
 O erro do indexador da busca pelo rosto, por inteiro, no painel (#299).
 
