@@ -49,7 +49,9 @@ describe('prévia permanente: troca de host', () => {
     const res = await pede('https://preview.entrenos2026.com/');
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).not.toMatch(/https:\/\/(www\.)?entrenos2026\.com/);
+    // Nenhum endereço absoluto do álbum de produção: depois de https:// vem
+    // sempre o preview. (Sem âncora, o CodeQL avisa regex de URL solta.)
+    expect(html.split('https://').slice(1).filter(t => /^(www\.)?entrenos2026\.com(?![\w.-])/.test(t))).toEqual([]);
     expect(html).toContain('preview.entrenos2026.com');
   });
 
