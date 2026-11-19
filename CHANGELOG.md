@@ -18,7 +18,19 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.4.0] — ainda não publicada
+## [4.5.0] — ainda não publicada
+
+Menor: a página inicial carrega mais eventos sozinha ao chegar ao fim.
+
+- **Sem clicar em "Carregar mais".** Quando o fim da lista chega a 600 px da
+  tela, os próximos 12 eventos aparecem. O botão continua lá para quem navega
+  pelo teclado e para navegador sem `IntersectionObserver`. Com busca ou
+  filtro ativos, nada muda: a lista já mostra tudo o que combina.
+- `scripts/verifica-celular.mjs` ganhou o cenário "Início": num iPhone de
+  390 px, com 40 eventos, rolar até o fim mostra os 40; com tudo à mostra o
+  botão some; a busca segue filtrando; sem erro de JS.
+
+## [4.4.0] — 2026-11-19
 
 Menor: função nova (vídeo tocado no site) e uma marca a menos na galeria. Vem
 depois do #323 (4.3.0, visual).
