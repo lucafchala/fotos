@@ -43,7 +43,7 @@
 // sessão o servidor pergunta à pasta se já existe um arquivo com ela. Vale
 // entre aparelhos e entre pessoas, sem banco paralelo.
 
-import { noteDegraded, errMessage, ehPrevia } from './utils.js';
+import { noteDegraded, errMessage, ehPrevia, ehPromessaDeOutroPedido } from './utils.js';
 import {
   ENVIO_TIPOS, ENVIO_ASSINATURA_MIN, ENVIO_ASSINATURA_MAX, ENVIO_SESSAO_TTL_SECS,
   ENVIO_MARGEM_DRIVE_BYTES, ENVIO_AVISO_DRIVE_BYTES, SIGNING_SECRET_MIN_LENGTH,
@@ -135,7 +135,14 @@ export async function tokenDeAcesso(env, { novo = false } = {}) {
   if (tem && !novo) {
     if (tem.token && agora < tem.ate) return tem.token;
     if (tem.erro && agora < tem.ate) throw tem.erro;
-    if (tem.voo) return tem.voo;
+    if (tem.voo) {
+      const outro = tem.voo;
+      return outro.catch(e => {
+        if (!ehPromessaDeOutroPedido(e)) throw e;
+        if (tokens.get(k) === tem) tokens.delete(k);
+        return tokenDeAcesso(env);
+      });
+    }
   }
   const voo = (async () => {
     /** @type {Response} */
@@ -471,7 +478,7 @@ export async function saudeDoEnvio(env) {
 
 /** @type {Map<string, Promise<CryptoKey>>} */
 const chaves = new Map();
-/** @param {string} secret */
+/** @param {string} secret @returns {Promise<CryptoKey>} */
 function chaveDoSelo(secret) {
   let k = chaves.get(secret);
   if (!k) {
@@ -481,7 +488,12 @@ function chaveDoSelo(secret) {
       .then(d => crypto.subtle.importKey('raw', d, 'AES-GCM', false, ['encrypt', 'decrypt']));
     chaves.set(secret, k);
   }
-  return k;
+  const guardada = k;
+  return guardada.catch(e => {
+    if (!ehPromessaDeOutroPedido(e)) throw e;
+    if (chaves.get(secret) === guardada) chaves.delete(secret);
+    return chaveDoSelo(secret);
+  });
 }
 
 /** @param {Uint8Array} b */

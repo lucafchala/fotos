@@ -18,7 +18,20 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.5.0] — ainda não publicada
+## [4.5.1] — ainda não publicada
+
+Correção: a galeria às vezes dava **erro 500** (FNUSC, 19/11/2026).
+
+- Dois pedidos à mesma galeria, no mesmo isolate, compartilham a leitura do
+  Drive (`voos` e `decisoes` em `src/drive.js`). Se o pedido que começou a
+  leitura acabava antes, o Workers rejeitava a espera do outro ("This promise
+  was created by a request that has since ended") e a página caía no 500.
+  Agora quem esperava refaz a leitura no próprio pedido
+  (`ehPromessaDeOutroPedido`, `src/utils.js`). O mesmo vale para o token do
+  envio pelo site e para a chave do selo (`src/envio.js`).
+- `tests/promessa-outro-pedido.test.js` prende o caso: falha no código antigo.
+
+## [4.5.0] — 2026-11-19
 
 Menor: a página inicial carrega mais eventos sozinha ao chegar ao fim.
 

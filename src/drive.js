@@ -16,7 +16,7 @@
 // da lista de eventos em utils.js). Nenhuma escrita de KV.
 
 import { lerSnapshot, gravaSnapshot, comEmConferido } from './snapshot.js';
-import { tomaLease, soltaLease } from './utils.js';
+import { tomaLease, soltaLease, ehPromessaDeOutroPedido } from './utils.js';
 import { creditoDaDescricao } from './envio.js';
 import {
   GALERIA_LISTA_TTL_S, GALERIA_PERIODOS_S, GALERIA_SNAPSHOT_MEM_S, GALERIA_MAX_FOTOS, GALERIA_MAX_PASTAS,
@@ -318,11 +318,16 @@ const dorme = ms => new Promise(r => setTimeout(r, ms));
  * }} o `velhoMaxMs`: até quando a vencida ainda é servida (padrão GALERIA_VELHO_MAX_S)
  * @returns {Promise<T>}
  */
-async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualizar, fonte, refaz, velhoMaxMs = GALERIA_VELHO_MAX_S * 1000 }) {
+export async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualizar, fonte, refaz, velhoMaxMs = GALERIA_VELHO_MAX_S * 1000 }) {
   /** @param {boolean} forcar @returns {Promise<T>} */
   const voo = forcar => {
     const em = voos.get(kMem);
-    if (em) return em;
+    // A promessa de outro pedido que já acabou rejeita aqui: relê neste.
+    if (em) return em.catch(e => {
+      if (!ehPromessaDeOutroPedido(e)) throw e;
+      if (voos.get(kMem) === em) voos.delete(kMem);
+      return voo(forcar);
+    });
     const p = refaz(forcar).finally(() => { if (voos.get(kMem) === p) voos.delete(kMem); });
     voos.set(kMem, p);
     return p;
@@ -333,7 +338,7 @@ async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualiz
   if (mem && Date.now() - mem.em < ttlMs) return mem.dados;
   const velhoMem = mem ? mem.dados : null;
   const emCurso = decisoes.get(kMem);
-  if (emCurso) return velhoMem || emCurso;
+  if (emCurso && velhoMem) return velhoMem;
 
   /** @returns {Promise<T>} */
   const decide = async () => {
@@ -384,9 +389,18 @@ async function leComRenovacao(env, ctx, { kMem, leaseChave, memo, ttlMs, atualiz
     }
     throw new DriveError('carregando', 'As fotos estão sendo carregadas pela primeira vez. A página tenta de novo sozinha.');
   };
-  const p = decide().finally(() => { if (decisoes.get(kMem) === p) decisoes.delete(kMem); });
-  decisoes.set(kMem, p);
-  return p;
+  const inicia = () => {
+    const p = decide().finally(() => { if (decisoes.get(kMem) === p) decisoes.delete(kMem); });
+    decisoes.set(kMem, p);
+    return p;
+  };
+  // A decisão de outro pedido que já acabou rejeita aqui: decide neste.
+  if (emCurso) return emCurso.catch(e => {
+    if (!ehPromessaDeOutroPedido(e)) throw e;
+    if (decisoes.get(kMem) === emCurso) decisoes.delete(kMem);
+    return inicia();
+  });
+  return inicia();
 }
 
 /** Só para testes: o cache de módulo vazaria entre casos. */
