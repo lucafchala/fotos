@@ -56,11 +56,14 @@ describe('evento sem data nas páginas (#196)', () => {
     expect(trilha[1].name).toBe('Sem data');
   });
 
-  it('a página de projeto COM data mantém o ano na trilha', async () => {
+  it('a página de projeto COM data mantém o ano na trilha (do JSON-LD; a visível saiu na 4.6.0)', async () => {
     const env = withDurableObjects({ FOTOS: fakeKV() });
     await saveEvents(env, [{ ...structuredClone(SEM_DATA), slug: 'com-data', date: '2025-04-01' }]);
     const html = await (await worker.fetch(new Request('https://fotos.lucafchala.com/com-data'), env, ctx)).text();
-    expect(html).toContain('href="/?year=2025"');
+    const ld = [...html.matchAll(/<script type="application\/ld\+json"[^>]*>([^<]*)<\/script>/g)].flatMap(m => [].concat(JSON.parse(m[1])['@graph'] || JSON.parse(m[1])));
+    const trilha = ld.find(n => n['@type'] === 'BreadcrumbList').itemListElement;
+    expect(trilha[1].name).toBe('2025');
+    expect(html).not.toContain('class="breadcrumbs"');
   });
 
   it('a galeria agrupa sob "Sem data" e o cartão de link ignora o ano vazio', () => {
