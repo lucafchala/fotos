@@ -18,7 +18,7 @@
 //    comum. iPhone/iPad: "Salvar no Fotos" (a folha do sistema com o arquivo,
 //    um toque até o app Fotos) e "Baixar arquivo" (vai para o app Arquivos);
 //  - favoritas (o coração), lembradas no aparelho, que se baixam ou viram
-//    link juntas (v4.3.0: o antigo modo "Selecionar" foi juntado a elas), e
+//    link juntas (v4.4.0: o antigo modo "Selecionar" foi juntado a elas), e
 //    link direto para cada
 //    foto (?foto=código; o #foto= antigo também abre).
 //
@@ -27,7 +27,7 @@
 // projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
 // página.
 
-import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
+import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { PALETA_ALBUM as P, GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, MINIATURA_DPR_DEGRAUS, fatorMiniatura, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
@@ -50,6 +50,12 @@ const TEMA_ALBUM = `
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#e0a0a0;
       color-scheme:dark;
     }
+    :root:root body,:root:root .pswp__g-legenda,:root:root .pswp__g-legenda .g-leg-autor,:root:root .g-vid-dur,:root:root .g-rem-link,:root:root .pswp__button--g-baixar-grande{font-family:'Open Sans',sans-serif}
+    ::selection{background:var(--accent);color:var(--accent-text)}
+    :root:root .g-dono b,:root:root .g-previa b{color:var(--text-2);border-color:var(--text-dim);letter-spacing:0;text-transform:none;font-size:.75rem}
+    :root:root .g-t .g-nova{letter-spacing:0;text-transform:none;font-size:.75rem;font-weight:600;background:rgba(0,0,0,.7);color:#fff}
+    :root:root .g-t .g-live,:root:root .g-t .g-oc{letter-spacing:0;text-transform:none;font-size:.75rem;font-weight:600}
+    :root:root .g-t.sem-mini::after{letter-spacing:.02em}
     .g-fim{display:flex;flex-direction:column;align-items:center;padding:2.5rem var(--pad) 3rem}
     ${BOTAO_AJUDA_CSS}
     .g-fim a{display:inline-flex;align-items:center;min-height:44px;color:var(--text-muted);font-size:.85rem;text-decoration:underline;text-underline-offset:3px}`;
@@ -461,11 +467,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ...(marca ? { siteName: marca.siteName } : {}),
   })}
   ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonParaScript(jsonLd)}</script>` : ''}
-  ${fontPreloadHTML()}
+  ${marca ? '' : fontPreloadHTML()}
   ${photoPreconnectHTML()}
   ${preloadLcp}
   <style>
-    ${fontFaceCSS()}
+    ${marca ? fontFaceAlbumCSS() : fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#666;
@@ -493,7 +499,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-dono a:hover{color:var(--text)}
     .g-dono b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
     .g-dono .g-lista{margin-left:auto}
-    .g-dono .g-dica-sec{flex-basis:100%;color:var(--text)}
+    .g-dono .g-dica-sec{flex-basis:100%;max-width:60ch;color:var(--text-2);font-size:.8125rem;line-height:1.5}
     .g-dono .g-ano{display:inline-flex;align-items:center;gap:.4rem}
     .g-dono select{min-height:36px;padding:0 .4rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-page);color:var(--text);font:inherit}
     .g-top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg-page) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
@@ -515,17 +521,17 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-ev{display:flex;align-items:center;min-height:44px;padding:0 .9rem;border-radius:10px;color:var(--text-2);font-size:.92rem;text-decoration:none}
     .g-ev[aria-current="page"]{background:var(--accent);color:var(--accent-text);font-weight:600}
     .g-ev-todos{color:var(--text);font-weight:600;border-bottom:1px solid var(--border);border-radius:10px 10px 0 0;margin-bottom:.2rem}
-    .g-ev-ano{display:block;padding:.7rem .9rem .25rem;font-size:.72rem;font-weight:600;letter-spacing:.14em;color:var(--text-muted)}
+    .g-ev-ano{display:block;padding:.7rem .9rem .25rem;font-size:.75rem;font-weight:600;letter-spacing:.02em;color:var(--text-muted)}
     @media (hover:hover){.g-ev:not([aria-current]):hover{background:var(--border);color:var(--text)}.g-ev-seta:hover,.g-ev-menu>summary:hover{border-color:var(--text-muted)}}
     .g-cap-nav.g-cap-fim{border-bottom:0;border-top:1px solid var(--border);margin-top:1.5rem;padding:.6rem var(--pad) 1.5rem}
-    .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;max-width:100%;color:var(--text-2);text-decoration:none}
+    .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;min-width:44px;max-width:100%;color:var(--text-2);text-decoration:none}
     .g-cap-a:hover{color:var(--text);text-decoration:underline}
     .g-cap-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(60vw,22rem)}
     .g-cap-p{margin-left:auto}
     .g-meta{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
-    .g-autores{font-size:1.05rem;font-weight:700;color:var(--text);margin-top:.5rem;line-height:1.35}
+    .g-autores{font-size:1.0625rem;font-weight:600;color:var(--text);margin-top:.5rem;line-height:1.35}
     .g-top .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
-    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.75rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.875rem;font-weight:600;letter-spacing:0;color:var(--accent)}
     .g-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
     .g-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.5rem 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),border-color .12s}
     .g-btn:active{transform:scale(.97)}
@@ -553,12 +559,14 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-erro code{font-size:.8rem;background:var(--bg-card);padding:.1rem .35rem;border-radius:4px;color:var(--text)}
     .g-erro a{color:var(--text)}
     main{padding:1.25rem 0 6rem}
+    /* 4.1.2: até o script montar a grade, ela ocupa ao menos uma tela; senão a navegação do fim e o rodapé aparecem na primeira tela e são empurrados para baixo. */
+    .g-reserva{min-height:100vh;min-height:100svh}
     .g-sec{margin-bottom:2rem;content-visibility:auto;contain-intrinsic-size:auto 900px}
     .g-sec{scroll-margin-top:calc(var(--topo) + 8px)}
     .g-sec[hidden]{display:none}
     .g-sec-cab{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0 var(--pad);margin-bottom:.7rem}
     .g-sec-cab.sem-titulo{display:none}
-    .g-sec h2{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);font-weight:600}
+    .g-sec h2{font-size:.9375rem;letter-spacing:0;color:var(--text-2);font-weight:600}
     .g-grade{padding:0 var(--pad)}
     .g-linha{display:flex;gap:var(--gap);margin-bottom:var(--gap)}
     /* v4.3.0: a grade é feita de blocos de altura fixa; só os perto da tela
@@ -730,6 +738,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-rem-ok p.sub{font-size:.8rem;color:var(--text-muted)}
     ${HONEYPOT_CSS}
     @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
       .g-t img,.g-fav,.g-btn,.g-chip,.g-op{transition:none}
       .g-vid-ico{transition:none}
       .g-reel.pisca:not(.pausado) .g-vid-ico{animation:none;opacity:0}
@@ -774,7 +783,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
 ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>`}
       </div>
     </div>
-    ${dados ? '<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas" hidden></nav>' : ''}
+    ${listagem ? chipsProntosHTML(listagem, autores) : ''}
   </header>
   ${capitulo && capitulo.eventos && capitulo.eventos.length > 1 ? faixaDeEventos(base, capitulo) : capitulo ? navCapitulos(base, capitulo, 'topo') : ''}
   ${avisos.map(a => `<p class="g-aviso">${escape(a)}</p>`).join('\n  ')}
@@ -784,7 +793,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
     ${conserto.passos.length ? `<ol>${conserto.passos.map(p => `<li>${p}</li>`).join('')}</ol>` : ''}
   </section>` : ''}
   ${listagem && !total ? '<section class="g-erro"><h2>A pasta não tem fotos</h2><p>O Drive respondeu, mas não há imagens nesta pasta (nem nas subpastas lidas).</p></section>' : ''}
-  <main id="g-main" aria-label="Fotos">${fileiraPronta}</main>
+  <main id="g-main" aria-label="Fotos"${listagem && listagem.total >= GRADE_RESERVA_MIN ? ' class="g-reserva"' : ''}>${fileiraPronta}</main>
   ${capitulo && listagem ? navCapitulos(base, capitulo, 'fim', marca ? '' : slug) : ''}
   ${marca ? `<footer class="g-fim"><div class="aj-rodape">${botaoDeAjudaHTML(base)}</div><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>` : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
@@ -802,7 +811,7 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
       <form id="g-rem-f" novalidate>
         <p class="g-folha-t" id="g-rem-t">Pedir remoção desta foto</p>
         <div class="g-rem-foto"><img id="g-rem-img" alt="" width="72" height="72"><span id="g-rem-nome"></span></div>
-        <p class="g-rem-aviso">Recebemos o pedido. O fotógrafo vai analisar e você recebe a resposta por e-mail.</p>
+        <p class="g-rem-aviso">O fotógrafo analisa cada pedido e responde no e-mail que você deixar aqui. A foto continua no álbum enquanto isso.</p>
         <label for="g-rem-motivo">Motivo</label>
         <select id="g-rem-motivo" required>
           <option value="" disabled selected>Escolha um motivo</option>
@@ -960,6 +969,58 @@ export function primeiraFileiraHTML(listagem, assina) {
   }).join('');
   const nome = varias ? (nomeDaSecao(sec).nome || 'Fotos') : '';
   return `<section class="g-sec g-pre" id="g-pre" aria-hidden="true"><div class="g-sec-cab${varias ? '' : ' sem-titulo'}">${varias ? `<h2>${escape(nome)}</h2>` : ''}</div><div class="g-grade"><div class="g-linha g-pre-linha">${itens}</div></div></section>`;
+}
+
+/**
+ * A partir de quantas fotos a grade sempre passa de uma tela (390 px: ~3 por
+ * fileira de ~130 px; 1.440 px: ~6 por fileira de ~250 px). Com isso ou mais,
+ * o `<main>` sai com `.g-reserva` (uma tela de altura) até o script montar a
+ * grade, e a navegação do fim e o rodapé não aparecem para depois sumir
+ * (4.1.2). Abaixo disso a grade pode ser mais baixa que a tela, e a reserva
+ * faria o rodapé subir: aí fica como era.
+ */
+export const GRADE_RESERVA_MIN = 40;
+
+/**
+ * A faixa de chips já no HTML (4.1.2). Ela saía vazia e escondida, e o script
+ * a abria segundos depois da primeira pintura: o cabeçalho crescia 55 px e a
+ * grade inteira descia com a pessoa já olhando (CLS de 0,75 a 0,81 num evento
+ * do álbum, em 3G lento). Aqui saem os chips que o servidor conhece, seções
+ * (ou anos) e fotógrafos, com a MESMA marcação que `montaChips` produz sem
+ * filtro ligado; o script troca pelos dele, na mesma altura. Quem confere que
+ * os dois dizem a mesma coisa é o navegador (verifica:galeria): a regra mora
+ * em dois lugares, e só um teste segura as duas cópias juntas.
+ * "Favoritas" e "Só as novas" dependem do aparelho: só o script sabe. Numa
+ * página em que só elas existem, a faixa continua abrindo depois.
+ * @param {import('../drive.js').ListagemDrive} listagem
+ * @param {string[]} autores
+ * @returns {string}
+ */
+export function chipsProntosHTML(listagem, autores) {
+  const secoes = listagem.secoes.map(s => ({ ...nomeDaSecao(s), n: s.fotos.length }));
+  const total = secoes.reduce((t, s) => t + s.n, 0);
+  const chip = (/** @type {string} */ nome, /** @type {number} */ n, /** @type {string} */ attrs) =>
+    `<button type="button" class="g-chip"${attrs}>${escape(nome)}<small>${n}</small></button>`;
+  /** @type {string[]} */
+  const partes = [];
+  // O ano de cada seção: o do caminho ou, sem ele, o do começo do nome.
+  const anos = secoes.map(s => String(s.ano || (/^(19|20)[0-9][0-9](?![0-9])/.exec(String(s.nome || '').trim()) || [''])[0]));
+  const anosLista = anos.filter((a, i) => a && anos.indexOf(a) === i);
+  if (secoes.length > 1 && anos.every(Boolean) && anosLista.length > 1) {
+    const cadaAno = anosLista.map((ano, k) => chip(ano, secoes.reduce((t, s, i) => t + (anos[i] === ano ? s.n : 0), 0), ` data-acao="filtro-sec" data-sec="${k}" aria-pressed="false"`));
+    partes.push(`<span class="g-chips-grupo g-chips-anos" role="group" aria-label="Ano">${chip('Todos os anos', total, ' data-acao="filtro-sec" data-sec="-1" aria-pressed="true"')}${cadaAno.join('')}</span>`);
+  } else if (secoes.length > 1) {
+    secoes.forEach((s, k) => partes.push(chip(s.nome || 'Fotos', s.n, ` data-acao="ir-sec" data-sec="${k}"${k ? '' : ' aria-current="true"'}`)));
+  }
+  // Fotógrafos: só com foto de mais de um na página.
+  /** @type {Map<number, number>} */
+  const porAutor = new Map();
+  for (const s of listagem.secoes) for (const f of s.fotos) porAutor.set(f[5] || 0, (porAutor.get(f[5] || 0) || 0) + 1);
+  if (porAutor.size > 1) {
+    const cadaAutor = [...porAutor.keys()].sort((a, b) => a - b).map(k => chip(autores[k] || 'Fotos', porAutor.get(k) || 0, ` data-acao="filtro-autor" data-aut="${k}" aria-pressed="false"`));
+    partes.push(`<span class="g-chips-grupo" role="group" aria-label="Fotógrafo">${chip('Todos', total, ' data-acao="filtro-autor" data-aut="-1" aria-pressed="true"')}${cadaAutor.join('')}</span>`);
+  }
+  return `<nav class="g-chips" id="g-chips" aria-label="Seções, fotógrafos e favoritas"${partes.length ? '' : ' hidden'}>${partes.join('')}</nav>`;
 }
 
 /**
@@ -3783,6 +3844,7 @@ const SCRIPT = `
     if (filtroSec >= 0) recalculaVistas();
     montaChips();
     diagramaTudo();
+    if (main) main.classList.remove('g-reserva');
     observaSecoes();
     if (doLink === 0) {
       avisa('As fotos deste link não estão mais nesta galeria');

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  escape, validateSlug, formatDatePT, eventTime, sortEvents, sizedDriveThumb,
+  escape, validateSlug, formatDatePT, formatDateCurta, eventTime, sortEvents, sizedDriveThumb,
   driveSrcset, timingSafeEqual, toHttps, safeUrl, isLikelyImage, csvCell, hashPassword, verifyPassword,
   sendErrorAlert, emailCanonico, sendRemovalEmail, sendResolvedEmail, sendSupportEmail, sendConfirmationEmail,
   errMessage, truncateText, previewDescription, ogImageFor, socialMetaHTML,
@@ -42,6 +42,24 @@ describe('validateSlug', () => {
   it('não confunde um slug que só CONTÉM uma palavra reservada', () => {
     expect(validateSlug('sobre-nos-2026')).toBe(true);
     expect(validateSlug('formatura-legal')).toBe(true);
+  });
+});
+
+describe('formatDateCurta', () => {
+  it('dia, mês abreviado em minúsculas sem ponto, ano', () => {
+    expect(formatDateCurta('2026-10-27')).toBe('27 Out 2026');
+    expect(formatDateCurta('2026-06-09')).toBe('9 Jun 2026');
+    expect(formatDateCurta('2026-03-01')).toBe('1 Mar 2026');
+  });
+  it('vazio vira vazio e data malformada volta como veio, sem NaN', () => {
+    expect(formatDateCurta('')).toBe('');
+    expect(formatDateCurta(null)).toBe('');
+    expect(formatDateCurta('2026-13-01')).toBe('2026-13-01');
+    expect(formatDateCurta('2026-06')).toBe('2026-06');
+    expect(formatDateCurta('2026-ab-cd')).not.toMatch(/NaN|undefined/);
+  });
+  it('não mexe no formatDatePT, que alimenta SEO', () => {
+    expect(formatDatePT('2026-10-27')).toBe('27 de outubro de 2026');
   });
 });
 

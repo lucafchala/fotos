@@ -195,7 +195,7 @@ const VIDEO_WEBM = await (async () => {
 await provaOVigia(browser, registra);
 
 /**
- * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, limite429Vezes?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any }, driveFrame?: boolean }} o
+ * @param {{ viewport?: { width: number, height: number }, dpr?: number, toque?: boolean, pagina?: string, url?: string, semScript?: boolean, compartilhar?: boolean, semCanShare?: boolean, ua?: string, ipad?: boolean, escuro?: boolean, ocultas?: string[], recusaShare?: boolean, limite429?: number, limite429Vezes?: number, turnstile?: 'ok' | 'bloqueado', remocao?: (corpo: any) => { status: number, json: any }, driveFrame?: boolean }} o
  */
 async function abre(o = {}) {
   const ctx = await browser.newContext({
@@ -329,6 +329,8 @@ async function abre(o = {}) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ocultas: [...ocultasNoServidor] }) });
     }
     // O script da galeria é arquivo desde a v4.1.0 (#252).
+    // `semScript`: a página como ela é ANTES de o script chegar (rede lenta).
+    if (u.pathname === GALERIA_JS.path && o.semScript) return route.abort();
     if (u.pathname === GALERIA_JS.path) return route.fulfill({ status: 200, contentType: 'text/javascript', body: GALERIA_JS.texto });
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
@@ -2062,6 +2064,62 @@ await cenario('Vídeo: sem a liberação na CSP nada de vídeo sai', async () =>
     await ctx.close();
   });
 }
+
+// ---- 6i. Chips do servidor (4.1.2): a faixa não abre depois ------------------
+// A faixa de chips sai pronta do servidor (chipsProntosHTML) e o script monta
+// a dele por cima. São duas cópias da mesma regra; aqui o navegador confere
+// que dizem a mesma coisa, e que o cabeçalho tem a mesma altura antes e depois
+// do script. Antes ele crescia 55 px e a grade pulava (CLS de 0,75 a 0,81).
+const LISTAGEM_ANOS = {
+  ...LISTAGEM_CAP, total: 18,
+  secoes: [
+    { nome: 'Dia 1', caminho: '2025 / Dia 1', fotos: comAutor(raiz.slice(0, 6), 0) },
+    { nome: 'Dia 2', caminho: '2025 / Dia 2', fotos: comAutor(raiz.slice(6, 12), 0) },
+    { nome: '2026', caminho: '2026', fotos: comAutor(festa.slice(0, 6), 6) },
+  ],
+};
+const PAGINA_ANOS = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM_ANOS, erro: null, nonce: NONCE, dono: false, formToken: '' });
+for (const [nome, pagina, esperados] of /** @type {const} */ ([
+  ['seções', PAGINA, 2],
+  ['fotógrafos e seções', PAGINA_CAP, 6],
+  ['anos e fotógrafos', PAGINA_ANOS, 7],
+])) {
+  await cenario(`Chips do servidor: ${nome}`, async () => {
+    const celular = { viewport: { width: 390, height: 844 }, dpr: 3, toque: true };
+    const doServidor = (pagina.match(/<nav class="g-chips"[^>]*>([\s\S]*?)<\/nav>/) || [])[1] || '';
+    const mede = (/** @type {string} */ html) => {
+      const nav = /** @type {HTMLElement} */ (document.getElementById('g-chips'));
+      const t = document.createElement('template');
+      t.innerHTML = html;
+      return {
+        topo: /** @type {HTMLElement} */ (document.querySelector('.g-top')).offsetHeight,
+        visivel: !nav.hidden && nav.offsetHeight > 0,
+        n: nav.querySelectorAll('.g-chip').length,
+        igual: t.innerHTML === nav.innerHTML,
+        html: nav.innerHTML,
+      };
+    };
+    const a = await abre({ ...celular, pagina, semScript: true });
+    const antes = await a.page.evaluate(mede, doServidor);
+    await a.ctx.close();
+    const d = await abre({ ...celular, pagina });
+    const depois = await d.page.evaluate(mede, doServidor);
+    registra(antes.visivel && antes.n === esperados, `Chips do servidor (${nome}): a faixa já está aberta antes do script, com ${esperados} chips`, { visivel: antes.visivel, n: antes.n });
+    registra(depois.igual, `Chips do servidor (${nome}): o script monta exatamente os mesmos chips`, depois.igual ? '' : { servidor: doServidor, script: depois.html });
+    registra(antes.topo === depois.topo && antes.topo > 0, `Chips do servidor (${nome}): o cabeçalho tem a mesma altura antes e depois do script`, { antes: antes.topo, depois: depois.topo });
+    registra(d.estado.erros.length === 0 && d.estado.csp.length === 0, `Chips do servidor (${nome}): sem erro de JS nem CSP`, [...d.estado.erros, ...d.estado.csp]);
+    await d.ctx.close();
+  });
+}
+// Sem seções nem segundo fotógrafo, o servidor não abre a faixa (e o script
+// também não): a galeria simples não ganha uma faixa vazia.
+await cenario('Chips do servidor: galeria simples', async () => {
+  const simples = await paginaAssinada({ event: EVENTO, listagem: { ...LISTAGEM, total: raiz.length, secoes: [LISTAGEM.secoes[0]] }, erro: null, nonce: NONCE });
+  const { ctx, page } = await abre({ pagina: simples, viewport: { width: 390, height: 844 }, dpr: 3, toque: true });
+  const nav = await page.evaluate(() => { const n = /** @type {HTMLElement} */ (document.getElementById('g-chips')); return { hidden: n.hidden, n: n.childElementCount }; });
+  registra(/<nav class="g-chips"[^>]* hidden><\/nav>/.test(simples) && nav.hidden && nav.n === 0, 'Chips do servidor (galeria simples): sem faixa no servidor e sem faixa no script', nav);
+  await ctx.close();
+});
 
 // ---- 7. Página de erro (chave ausente) ------------------------------------
 await cenario('Página de erro', async () => {

@@ -15,7 +15,7 @@
 // As capas e as contagens vêm do RESUMO dos capítulos (drive.js), como os
 // cartões do índice simples: nenhuma listagem a mais.
 
-import { enderecoDoAlbum, marcaDoAlbum, escape, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
+import { enderecoDoAlbum, marcaDoAlbum, escape, fontFaceAlbumCSS, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, previewDescription, ogImageFor, footerLegalLinksHTML } from '../utils.js';
 import { urlLh3, pastaDoDrive, parseCreditos, chavesDeEnvio } from '../drive.js';
 import { urlFoto } from '../foto-rota.js';
 import { HONEYPOT_CSS } from '../security.js';
@@ -281,13 +281,14 @@ export function albumHTML(p) {
   // A abertura mais limpa (v3.8.7, pedido do dono: "muitos botões"): um botão
   // principal; o resto vira uma linha de links discretos. "Ver os eventos" só
   // aparece na linha quando a busca pelo rosto ocupa o botão principal (CSS).
+  const SAIR = '<p class="al-sair-rosto" id="rs-sair-p" hidden><button type="button" class="al-sair-btn" id="rs-sair-abrir">Não quero aparecer na busca pelo rosto</button></p>';
   const links = [
     caps.length ? '<a class="al-link al-link-ver" href="#eventos">Ver os eventos</a>' : '',
     restrito || caps.length < 2 ? '' : `<a class="al-link" href="${base}/numeros">Turma em números</a>`,
     restrito ? '' : `<a class="al-link" href="${base}/ajuda">Dúvidas?</a>`,
     restrito ? '' : `<span class="al-aviso" id="av" data-slug="${escape(slug)}" hidden><button type="button" class="al-link al-aviso-btn" id="av-btn" aria-pressed="false">${ICONE_SINO}<span id="av-txt">Avisar quando chegar foto nova</span></button></span>`,
   ].filter(Boolean).join('');
-  const linhaLinks = links ? `<nav class="al-links" aria-label="Mais opções">${links}</nav>${restrito ? '' : '<p class="al-aviso-msg" id="av-msg" role="status"></p>'}` : '';
+  const linhaLinks = links || p.botaoRosto ? `<nav class="al-links" aria-label="Mais opções">${links}${p.botaoRosto ? SAIR : ''}</nav>${restrito ? '' : '<p class="al-aviso-msg" id="av-msg" role="status"></p>'}` : '';
   // O selo acima do título: o do domínio do álbum ("Turma 2026 · Colégio Santa
   // Cruz"), o mesmo da página "em breve"; senão, o ano do projeto.
   const doDominio = Object.values(DOMINIOS_DE_ALBUM).find(a => a.slug === slug);
@@ -314,8 +315,7 @@ export function albumHTML(p) {
   // "Não quero aparecer na busca" à vista (v3.8.5, decisão do dono: a busca
   // inclui todos os rostos do álbum e quem não quer sai por aqui). O script do
   // rosto o mostra junto com o botão da busca.
-  const sairRosto = p.botaoRosto ? '<p class="al-sair-rosto" id="rs-sair-p" hidden><button type="button" class="al-sair-btn" id="rs-sair-abrir">Não quero aparecer na busca pelo rosto</button></p>' : '';
-  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${sairRosto}${linhaLinks}${dicaEnvio}${buscaTopo}`;
+  const cabecalho = () => `${kicker ? `<span class="al-kick">${escape(kicker)}</span>` : ''}<h1 class="al-tit">${escape(titulo)}</h1>${intro ? `<div class="al-intro">${intro}</div>` : ''}${meta ? `<p class="al-meta">${escape(meta)}</p>` : ''}${botoes}${linhaLinks}${dicaEnvio}`;
 
   /** @type {string} */
   let primeiraTela;
@@ -399,16 +399,15 @@ export function albumHTML(p) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="${indexavel ? 'index,follow,max-image-preview:large' : 'noindex,nofollow'}">
   <meta name="theme-color" content="${P.bg}">
+  <meta name="color-scheme" content="dark">
   <link rel="icon" type="image/svg+xml" href="${marca ? marca.icone : '/icon.svg'}">
   <link rel="apple-touch-icon" href="${marca ? marca.apple : '/apple-touch-icon.png'}">
   ${marca ? '<link rel="manifest" href="/manifest-album.json"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="' + escape(titulo) + '">' : ''}
   <title>${escape(tituloPagina)}</title>
   <link rel="canonical" href="${escape(canonico)}">
   ${socialMetaHTML({ title: titulo, description: descricao, url: canonico, image: ogImage.url, imageAlt: `Fotos de ${titulo}`, imageWidth: ogImage.width, imageHeight: ogImage.height , ...(marca ? { siteName: marca.siteName } : {}) })}
-  ${fontPreloadHTML()}
   ${photoPreconnectHTML()}
   <style>
-    ${fontFaceCSS()}
     ${fontFaceAlbumCSS()}
     ${CSS_BASE}
     ${cssEstilo}
@@ -425,6 +424,7 @@ export function albumHTML(p) {
   <main id="g-main">
     <span id="sobre"></span>
     ${p.rostoDialog}
+    ${buscaTopo ? `<section class="al-sec al-procurar" aria-label="Procurar nas fotos">${buscaTopo}</section>` : ''}
     ${buscaRes ? `<section class="al-sec al-busca" aria-label="Resultado da busca nas fotos">${buscaRes}</section>` : ''}
     ${envio}
     ${linha}
@@ -647,116 +647,122 @@ const CSS_BASE = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 ${CORES_DO_ALBUM}
 html{scroll-behavior:smooth}
-@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
-body{background:var(--bg);color:var(--txt);font-family:'Open Sans','Inter',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh}
+body{background:var(--bg);color:var(--txt);font-family:'Open Sans',sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh}
 a{color:inherit;text-decoration:none}
+::selection{background:var(--sol);color:#141a33}
 :focus-visible{outline:2px solid var(--sol);outline-offset:3px}
-.al-tit{font-family:'Open Sans',sans-serif;font-weight:800;letter-spacing:-.03em;line-height:.95;overflow-wrap:anywhere}
-.al-kick{display:inline-block;font-size:.74rem;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--sol)}
-.al-meta{color:var(--txt2);font-size:.95rem;margin-top:.2rem}
-.al-btns{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.6rem}
+.al-tit{font-family:'Open Sans',sans-serif;font-weight:600;letter-spacing:-.025em;line-height:1.08;overflow-wrap:anywhere;text-wrap:balance}
+.al-kick{display:block;font-size:.9375rem;font-weight:600;line-height:1.4;color:var(--sol);text-wrap:balance}
+.al-sec>.al-kick{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.al-meta{color:var(--mudo);font-size:.875rem;line-height:1.4;margin:.25rem 0 0}
+.al-btns{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.5rem}
 @media (max-width:520px){.al-btns{flex-direction:column;align-items:stretch}.al-btns .al-btn{justify-content:center}}
-.al-dica{margin-top:.7rem;font-size:.82rem;color:var(--mudo)}.al-dica b{color:var(--txt2);font-weight:600}
+.al-dica{margin-top:.75rem;font-size:.8125rem;color:var(--mudo)}.al-dica b{color:var(--txt2);font-weight:600}
 .al-env-msg{min-height:1.2em;margin:.3rem 0}
-.rs .al-env-lista{list-style:none;margin:.2rem 0 0;display:grid;gap:.45rem}
-.al-env-op{display:flex;justify-content:space-between;align-items:center;gap:.8rem;width:100%;min-height:52px;padding:.55rem 1rem;border:1px solid var(--borda);border-radius:12px;background:var(--bg);color:var(--txt);font:inherit;text-align:left;cursor:pointer}
-.al-env-op span{display:flex;flex-direction:column;gap:.1rem;min-width:0}
-.al-env-op b{font-size:.95rem;font-weight:600;overflow-wrap:anywhere}
-.al-env-op small{font-size:.78rem;color:var(--mudo)}
+.rs .al-env-lista{list-style:none;margin:.2rem 0 0;display:grid;gap:.5rem}
+.al-env-op{display:flex;justify-content:space-between;align-items:center;gap:.75rem;width:100%;min-height:52px;padding:.5rem 1rem;border:1px solid var(--borda);border-radius:12px;background:var(--bg);color:var(--txt);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s cubic-bezier(.22,1,.36,1)}
+.al-env-op span{display:flex;flex-direction:column;gap:.125rem;min-width:0}
+.al-env-op b{font-size:.9375rem;font-weight:600;overflow-wrap:anywhere}
+.al-env-op small{font-size:.8125rem;color:var(--mudo)}
 .al-env-op::after{content:'›';flex:none;color:var(--sol);font-size:1.4rem;line-height:1}
 @media (hover:hover){.al-env-op:hover{border-color:var(--sol)}}
-.rs .al-env-raiz{margin-top:.9rem;font-size:.82rem}.al-env-raiz a{color:var(--sol);text-decoration:underline}
+.rs .al-env-raiz{margin-top:1rem;font-size:.8125rem}.al-env-raiz a{color:var(--txt2);text-decoration:underline;text-underline-offset:3px}
 .al-pol-txt .al-dica{text-align:center}
-.al-btn{display:inline-flex;align-items:center;min-height:46px;padding:0 1.25rem;border-radius:999px;font:inherit;font-weight:600;font-size:.93rem;border:1px solid var(--sol);cursor:pointer;transition:transform .15s ease,background-color .15s ease}
+.al-btn{display:inline-flex;align-items:center;min-height:48px;padding:0 1.25rem;border-radius:999px;font:inherit;font-weight:600;font-size:.9375rem;border:1px solid transparent;cursor:pointer;transition:transform .15s cubic-bezier(.22,1,.36,1),background-color .15s cubic-bezier(.22,1,.36,1),border-color .15s cubic-bezier(.22,1,.36,1)}
 .al-btn:active{transform:scale(.97)}
 .al-b1{background:var(--sol);color:#141a33}
-.al-rosto{gap:.55rem;justify-content:center}.al-rosto svg{width:1.25rem;height:1.25rem;flex:none}
-.al-btns:has(#rs-abrir:not([hidden])) .al-ver{background:rgba(${P.bgRgb},.45);color:var(--sol);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-.al-b2{color:var(--sol);background:rgba(${P.bgRgb},.45);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-@media (hover:hover){.al-b2:hover{background:rgba(249,222,75,.12)}.al-b1:hover{filter:brightness(1.06)}}
-.al-sec{display:block;padding:3.5rem var(--pad) 0;max-width:72rem;margin:0 auto}
-.al-sec h2{font-family:'Open Sans',sans-serif;font-weight:600;font-size:clamp(1.6rem,4vw,2.4rem);letter-spacing:-.02em;margin:.4rem 0 1.4rem}
-.al-intro{max-width:40rem;font-size:clamp(1.02rem,2.2vw,1.18rem);line-height:1.7;color:var(--txt2)}
+.al-rosto{gap:.5rem;justify-content:center}.al-rosto svg{width:1.125rem;height:1.125rem;flex:none}
+.al-btns:has(#rs-abrir:not([hidden])) .al-ver{background:rgba(240,235,229,.08);color:var(--txt);border-color:rgba(240,235,229,.24)}
+.al-b2{background:rgba(240,235,229,.06);color:var(--sol);border-color:var(--sol)}
+@media (hover:hover){.al-b2:hover{background:var(--sol);color:#141a33}.al-b1:hover{filter:brightness(1.06)}}
+.al-sec{display:block;position:relative;padding:3.5rem var(--pad) 0;max-width:72rem;margin:0 auto}
+.al-sec h2{font-family:'Open Sans',sans-serif;font-weight:600;font-size:clamp(1.5rem,4vw,2.25rem);line-height:1.15;letter-spacing:-.02em;margin:0 0 1.5rem}
+.al-sec h2::after{content:"";display:block;width:3rem;height:2px;margin-top:.75rem;background:var(--sol)}
+.al-intro{max-width:40rem;font-size:clamp(1rem,2.2vw,1.125rem);line-height:1.65;color:var(--txt2)}
 .al-intro p+p{margin-top:1rem}
-.al-tit+.al-intro{margin:0 0 1rem}
+.al-tit+.al-intro{margin:1rem 0 0}
 .al-pol-txt .al-intro{margin-left:auto;margin-right:auto}
-.al-btns+.bf,.al-btns~.bf{margin-top:1rem;max-width:34rem}
-.al-pol-txt .bf{margin-left:auto;margin-right:auto}
-.al-sair-rosto{margin-top:.15rem}
-.al-pol-txt .al-sair-rosto{text-align:center}
-.al-sair-btn{min-height:44px;padding:0;border:0;background:none;color:var(--mudo);font:inherit;font-size:.85rem;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
-@media (hover:hover){.al-sair-btn:hover{color:var(--sol)}}
-.al-mandar{gap:.5rem;justify-content:center}.al-mandar svg{width:1.15rem;height:1.15rem;flex:none}
-.al-links{display:flex;flex-wrap:wrap;align-items:center;gap:0 1.3rem;margin-top:.5rem}
+.al-procurar{padding-top:2.5rem}
+.al-procurar~.al-sec{padding-top:2.5rem}
+.al-procurar .bf{margin-top:0;max-width:34rem}
+.al-procurar .bf-dica,.al-procurar .bf-sug{display:none}
+.al .bf button{border-color:rgba(240,235,229,.24);background:rgba(240,235,229,.08);color:var(--txt)}
+.al .bf input{border-color:rgba(240,235,229,.24)}
+.al-sair-rosto{margin:0}
+.al-sair-rosto[hidden]{display:none}
+.al-sair-btn{min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.9rem;text-decoration:underline;text-decoration-color:var(--borda);text-underline-offset:4px;cursor:pointer}
+@media (hover:hover){.al-sair-btn:hover{color:var(--sol);text-decoration-color:currentColor}}
+.al-mandar{gap:.5rem;justify-content:center}.al-mandar svg{width:1.125rem;height:1.125rem;flex:none}
+.al-links{display:flex;flex-wrap:wrap;align-items:center;gap:0 1.25rem;margin-top:.5rem}
 .al-pol-txt .al-links{justify-content:center}
-.al-link{display:inline-flex;align-items:center;gap:.4rem;min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.95rem;text-decoration:underline;text-decoration-color:var(--borda);text-underline-offset:4px;cursor:pointer}
+.al-link{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0;border:0;background:none;color:var(--txt2);font:inherit;font-size:.9rem;text-decoration:underline;text-decoration-color:var(--borda);text-underline-offset:4px;cursor:pointer}
 @media (hover:hover){.al-link:hover{color:var(--sol);text-decoration-color:currentColor}}
-.al-link svg{width:1.05rem;height:1.05rem;flex:none;color:var(--sol)}
+.al-link svg{width:1.125rem;height:1.125rem;flex:none;color:var(--sol)}
 /* O display da classe vence o atributo hidden: sem esta linha, o botão de
    avisos que o script esconde (navegador de app, Safari fora da Tela de
    Início) continuava na tela, sem fazer nada (verifica:celular, v3.11.0). */
 .al-link[hidden]{display:none}
 .al-aviso-btn[aria-pressed="true"]{color:var(--txt)}
 .al-aviso-btn:disabled{opacity:.6;cursor:default}
-.al-aviso-msg{font-size:.82rem;color:var(--mudo);max-width:34rem;margin-top:.2rem}
+.al-aviso-msg{font-size:.8125rem;color:var(--mudo);max-width:34rem;margin-top:.25rem}
 .al-aviso-msg:empty{display:none}
 /* Com a busca pelo rosto no botão principal, "Ver todas as fotos" vira o link "Ver os eventos". */
 body:has(#rs-abrir:not([hidden])) .al-btns .al-ver{display:none}
 body:not(:has(#rs-abrir:not([hidden]))) .al-link-ver{display:none}
-/* A busca da abertura: só o campo (as sugestões e a dica ficam para depois). */
-.al-btns ~ .bf .bf-dica,.al-btns ~ .bf .bf-sug{display:none}
-.al-btns ~ .bf{margin-top:.6rem}
-.al-anos{display:flex;flex-wrap:wrap;gap:.4rem;margin:1rem 0 .4rem}
-.al-anos a{display:inline-flex;align-items:center;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);color:var(--txt2);font-weight:600;font-size:.88rem}
+.al-anos{display:flex;flex-wrap:wrap;gap:.5rem;margin:1rem 0 .5rem}
+.al-anos a{display:inline-flex;align-items:center;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--borda);color:var(--txt2);font-weight:600;font-size:.875rem;transition:border-color .15s cubic-bezier(.22,1,.36,1),color .15s cubic-bezier(.22,1,.36,1)}
 @media (hover:hover){.al-anos a:hover{border-color:var(--sol);color:var(--sol)}}
-.al-ano{font-family:'Open Sans',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.16em;color:var(--sol);margin:1.6rem 0 .7rem;scroll-margin-top:1rem}
-.al-grade{list-style:none;display:grid;gap:.7rem;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr))}
+.al-ano{font-family:'Open Sans',sans-serif;font-size:.9375rem;font-weight:600;color:var(--sol);margin:1.5rem 0 .75rem;scroll-margin-top:1rem}
+.al-grade{list-style:none;display:grid;gap:.75rem;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr))}
 .al-mini{margin-top:0}
 .al-mini img,.al-mini .al-vazio{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;background:var(--esqueleto)}
-.al-mini .al-nm{flex-direction:column;gap:.15rem;padding:.55rem .65rem .65rem}
-.al-mini .al-nm b{font-size:.95rem;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.al-mini .al-nm{flex-direction:column;gap:.125rem;padding:.5rem .75rem .75rem}
+.al-mini .al-nm b{font-size:.9375rem;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .al-mini .al-nm .ix-sub{font-size:.75rem}
 .al-vazio-msg{color:var(--mudo)}
-.al-vazio{display:block;width:100%;aspect-ratio:16/9;background:var(--esqueleto)}
+.al-vazio{display:block;width:100%;aspect-ratio:16/9;background:#161616 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238c8c8c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Ccircle cx='9' cy='11' r='1.5'/%3E%3Cpath d='m21 16-5-5-8 8'/%3E%3C/svg%3E") center/2rem no-repeat}
 .al-sem-foto{padding-top:clamp(3rem,10vh,6rem)}
-.al-tl{list-style:none;position:relative;display:grid;gap:1.1rem;grid-template-columns:1fr}
-.al-tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:linear-gradient(var(--azul),var(--borda))}
+.al-tl{list-style:none;position:relative;display:grid;gap:1.25rem;grid-template-columns:1fr}
+.al-tl::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--azul)}
 .al-tl>li{position:relative;padding-left:2rem}
 .al-tl>li::before{content:"";position:absolute;left:0;top:.3rem;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--sol)}
-.al-mes{display:block;font-size:.72rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--sol);min-height:1em}
-.al-card{display:block;margin-top:.45rem;border-radius:14px;overflow:hidden;background:var(--card);border:1px solid var(--borda);transition:border-color .2s ease}
-@media (hover:hover){.al-card:hover{border-color:var(--sol)}}
+.al-mes{display:block;font-size:.8125rem;font-weight:600;color:var(--sol);min-height:1em}
+.al-card{display:block;margin-top:.5rem;border-radius:14px;overflow:hidden;background:var(--card);border:1px solid var(--borda);transition:border-color .15s cubic-bezier(.22,1,.36,1)}
+@media (hover:hover){.al-card:hover{border-color:rgba(240,235,229,.4)}}
 .al-tl img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;background:var(--esqueleto)}
-.al-nm{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;padding:.75rem .9rem}
-.al-nm b{font-family:'Open Sans',sans-serif;font-weight:600;font-size:1.15rem;overflow-wrap:anywhere}
-.al-nm .ix-sub{font-size:.8rem;color:var(--mudo);white-space:nowrap}
-.ix-novas{display:inline-block;margin-left:.45rem;padding:.05rem .45rem;border:1px solid var(--sol);border-radius:999px;font-size:.7rem;color:var(--sol);white-space:nowrap}
+.al-nm{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;padding:.75rem 1rem}
+.al-nm b{font-family:'Open Sans',sans-serif;font-weight:600;font-size:1.125rem;overflow-wrap:anywhere}
+.al-nm .ix-sub{font-size:.8125rem;color:var(--mudo);white-space:nowrap}
+.ix-novas{display:inline-block;margin-left:.5rem;padding:.0625rem .5rem;border:1px solid ${P.dim};border-radius:999px;font-size:.75rem;color:var(--txt2);white-space:nowrap}
+.al .ix-visto-m{opacity:1;color:var(--txt2)}
 @media (min-width:760px){.al-tl{grid-template-columns:1fr 1fr;column-gap:2.5rem}.al-tl::before,.al-tl>li::before{display:none}.al-tl>li{padding-left:0}}
-.al-cred{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.8rem}
-.al-pix{display:grid;grid-template-columns:1fr;gap:1.2rem;align-items:start;background:var(--card);border:1px solid var(--borda);border-radius:16px;padding:1.2rem}
+.al-cred{display:flex;flex-wrap:wrap;gap:.25rem 1.5rem}
+.al-pix{display:grid;grid-template-columns:1fr;gap:1.25rem;align-items:start;background:var(--card);border:1px solid var(--borda);border-radius:16px;padding:1.25rem}
 .al-pix-qr{display:block;width:min(220px,60vw);height:auto;border-radius:10px;justify-self:center}
 .al-pix-txt p{color:var(--txt2);line-height:1.6}
-.al-pix-rot{display:block;margin-top:1rem;font-size:.8rem;color:var(--mudo)}
-.al-pix-cod{display:block;width:100%;margin-top:.3rem;padding:.6rem .7rem;border:1px solid var(--borda);border-radius:10px;background:var(--bg);color:var(--txt2);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;resize:none;word-break:break-all}
-.al-pix .al-btn{margin-top:.8rem}
-.al-pix-nota{margin-top:.6rem;font-size:.8rem;color:var(--mudo)}
-@media (min-width:760px){.al-pix{grid-template-columns:auto 1fr;padding:1.6rem}.al-pix-qr{width:220px}}
-.al-cred div{background:var(--card);border:1px solid var(--borda);border-radius:14px;padding:1.1rem 1.2rem}
-.al-cred span{display:block;font-family:'Open Sans',sans-serif;font-size:1.35rem;font-weight:700;color:var(--sol);overflow-wrap:anywhere}
+.al-pix-rot{display:block;margin-top:1rem;font-size:.8125rem;color:var(--mudo)}
+.al-pix-cod{display:block;width:100%;margin-top:.25rem;padding:.5rem .75rem;border:1px solid var(--borda);border-radius:10px;background:var(--bg);color:var(--txt2);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;resize:none;word-break:break-all}
+.al-pix .al-btn{margin-top:.75rem}
+.al-pix-nota{margin-top:.5rem;font-size:.8125rem;color:var(--mudo)}
+@media (min-width:760px){.al-pix{grid-template-columns:auto 1fr;padding:1.5rem}.al-pix-qr{width:220px}}
+.al-cred div{padding:.25rem 0}
+.al-cred span{display:block;font-family:'Open Sans',sans-serif;font-size:1rem;font-weight:400;color:var(--txt2);overflow-wrap:anywhere}
 .rs-res{max-width:72rem;margin:0 auto;padding:2.5rem var(--pad) 0}
-.rs-res h2{font-family:'Open Sans',sans-serif;font-size:1.5rem}
-.al-fim{margin:4.5rem 0 0;padding:3.5rem var(--pad) 2.5rem;text-align:center;background:linear-gradient(180deg,var(--bg) 0%,#141a33 30%,#172154 100%);border-top:1px solid #1f2a5c}
-.al-fim .al-kick{color:var(--sol)}
+.rs-res h2{font-family:'Open Sans',sans-serif;font-size:1.5rem;font-weight:600}
+.al-fim{margin:4rem 0 0;padding:3rem var(--pad) 2.5rem;text-align:center;border-top:2px solid var(--azul)}
+.al-fim .al-kick{color:var(--sol);font-size:.875rem;font-weight:600}
 ${BOTAO_AJUDA_CSS}
-.al-recado{max-width:40rem;margin:0 auto 1.4rem;font-family:'Open Sans',sans-serif;font-style:italic;font-weight:500;font-size:clamp(1.3rem,3.4vw,1.9rem);line-height:1.4;color:var(--txt2)}
-.al-legal{margin-top:2rem;font-size:.8rem;color:var(--mudo)}
-.al-legal .footer-actions-legal{display:flex;flex-wrap:wrap;justify-content:center;gap:.2rem 1rem}
-.al-legal a{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;text-underline-offset:3px}
-.al-legal .footer-copyright{margin-top:.4rem}
-.ix-dono{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem 1rem;padding:.5rem var(--pad);font-size:.78rem;color:var(--mudo);background:var(--card);border-bottom:1px solid var(--borda);position:relative;z-index:3}
-.ix-dono a{color:var(--txt2);text-decoration:underline;text-underline-offset:2px;padding:.55rem 0}
-.ix-dono b{font-weight:600;color:var(--sol);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--sol);border-radius:4px;padding:.1rem .4rem}
-.ix-aviso{margin:1rem var(--pad);padding:.7rem .9rem;border:1px solid #4a3a12;background:#1d1606;color:#d8b25a;border-radius:8px;font-size:.85rem}
+.al-recado{max-width:40rem;margin:0 auto 1.5rem;font-family:'Open Sans',sans-serif;font-style:normal;font-weight:400;font-size:clamp(1.125rem,3vw,1.375rem);line-height:1.5;color:var(--txt2)}
+.al-legal{margin-top:1.5rem;font-size:.8125rem;color:var(--mudo)}
+.al-legal .footer-actions-legal{display:flex;flex-wrap:wrap;justify-content:center;gap:0 .5rem}
+.al-legal a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;padding:0 .75rem;color:var(--mudo);text-decoration:none}
+@media (hover:hover){.al-legal a:hover{color:var(--txt2);text-decoration:underline;text-underline-offset:3px}}
+.al-legal .footer-copyright{margin-top:.5rem}
+.ix-dono{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;padding:.5rem var(--pad);font-size:.8125rem;color:var(--mudo);background:var(--card);border-bottom:1px solid var(--borda);position:relative;z-index:3}
+.ix-dono a{color:var(--txt2);text-decoration:underline;text-underline-offset:2px;padding:.5rem 0}
+.ix-dono b{font-weight:600;color:var(--txt2);font-size:.75rem;border:1px solid ${P.dim};border-radius:4px;padding:.125rem .5rem}
+.ix-aviso{margin:1rem var(--pad);padding:.75rem 1rem;border:1px solid #4a3a12;background:#1d1606;color:#d8b25a;border-radius:8px;font-size:.875rem}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 `;
 
 /** A tela cheia, com a troca de N fotos: cada uma fica 6 s, com 1 s de fusão. @param {number} n */
@@ -774,10 +780,13 @@ ${Array.from({ length: n }, (_, i) => `.al-slides img:nth-child(${i + 1}){animat
 .al-hero{position:relative;min-height:100svh;display:flex;align-items:flex-end;overflow:hidden}
 .al-slides img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--esqueleto)}
 ${troca}
-.al-hero:not(.al-sem-foto)::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(${P.bgRgb},.25) 0%,rgba(${P.bgRgb},0) 30%,rgba(${P.bgRgb},.7) 68%,var(--bg) 100%)}
-.al-hero-txt{position:relative;z-index:1;width:100%;max-width:72rem;margin:0 auto;padding:0 var(--pad) clamp(3rem,9vh,5.5rem)}
-.al-hero .al-tit{font-size:clamp(3.6rem,16vw,10.5rem);margin:.6rem 0 .8rem}
-.al-desce{position:absolute;z-index:1;left:50%;bottom:.6rem;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--mudo);font-size:1.4rem}
+/* O texto fica sobre uma faixa preta neutra: .86 já no começo do texto, o que
+   garante 4.5:1 mesmo sobre a parte mais clara de qualquer foto. */
+.al-hero-txt{position:relative;z-index:1;width:100%;padding:7rem max(var(--pad),calc((100% - 72rem)/2 + var(--pad))) 4rem}
+.al-hero:not(.al-sem-foto) .al-hero-txt::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.86) 6rem,rgba(0,0,0,.92))}
+.al-hero-txt>*{position:relative}
+.al-hero .al-tit{font-size:clamp(2.5rem,9vw,4.5rem);margin:.5rem 0 0}
+.al-desce{position:absolute;z-index:1;left:50%;bottom:.5rem;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--mudo);font-size:1.4rem}
 .ix-dono+.al-hero{min-height:calc(100svh - 40px)}`;
 }
 
@@ -788,34 +797,33 @@ const CSS_MOSAICO = `
 .al-mos::after{content:"";position:absolute;inset:auto 0 0;height:45%;background:linear-gradient(transparent,var(--bg));pointer-events:none}
 @media (max-width:560px){.al-mos{grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,30vw)}.al-mos img:nth-child(n+4){display:none}}
 .al-mos-txt{position:relative;max-width:72rem;margin:-3.5rem auto 0;padding:0 var(--pad)}
-.al-mos-txt::before{content:"";position:absolute;z-index:-1;left:-10%;top:10%;width:70%;height:90%;background:radial-gradient(closest-side,rgba(36,53,128,.45),transparent);pointer-events:none}
-.al-mos-h{position:relative;isolation:isolate}
+.al-mos-h{position:relative}
 .al-mos-txt.al-sem-foto{margin-top:0;padding-top:clamp(2.5rem,9vw,5.5rem)}
-.al-mos-h .al-tit{font-size:clamp(3.2rem,12vw,7.5rem);margin:.5rem 0 .7rem}`;
+.al-mos-h .al-tit{font-size:clamp(2.5rem,9vw,4.5rem);margin:.5rem 0 0}`;
 
 const CSS_RECORDACAO = `
-.al-papel{background:radial-gradient(ellipse at 30% 0%,#1c1c1c 0%,var(--bg) 62%);padding:clamp(2rem,6vh,4rem) var(--pad) 1rem;overflow:hidden}
+.al-papel{background:var(--bg);padding:clamp(2rem,6vh,4rem) var(--pad) 1rem;overflow:hidden}
 .al-mesa{position:relative;height:clamp(300px,52vw,520px);max-width:60rem;margin:0 auto}
 .al-pol{position:absolute;background:#fbf7ef;padding:10px 10px 38px;box-shadow:0 18px 40px rgba(0,0,0,.45);width:clamp(140px,30vw,300px)}
 .al-pol img{display:block;width:100%;aspect-ratio:1;object-fit:cover;background:#ddd6c8}
 .al-pol span{position:absolute;left:6px;right:6px;bottom:6px;text-align:center;font-family:'Caveat',cursive;font-size:clamp(1.1rem,2.6vw,1.6rem);color:#3a3226;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.al-pol::before{content:"";position:absolute;top:-10px;left:50%;width:70px;height:22px;transform:translateX(-50%) rotate(-3deg);background:rgba(249,222,75,.6)}
+.al-pol::before{content:"";position:absolute;top:-10px;left:50%;width:70px;height:22px;transform:translateX(-50%) rotate(-3deg);background:rgba(240,235,229,.28)}
 .al-p1{left:2%;top:6%;transform:rotate(-7deg)}.al-p2{left:23%;top:0;transform:rotate(4deg);z-index:2}.al-p3{left:46%;top:9%;transform:rotate(-3deg);z-index:3}
 .al-p4{left:68%;top:2%;transform:rotate(6deg);z-index:1}.al-p5{left:36%;top:38%;transform:rotate(-1deg);z-index:4}
 @media (max-width:560px){.al-p1,.al-p4{display:none}.al-p2{left:0}.al-p3{left:44%}.al-p5{left:18%;top:42%}}
 .al-pol-txt{text-align:center;max-width:72rem;margin:0 auto;padding:1.5rem 0 0}
-.al-recordacao .al-tit{font-family:'Caveat',cursive;font-weight:700;letter-spacing:0;font-size:clamp(4.2rem,16vw,9rem);line-height:.9;margin:.3rem 0 .4rem}
+.al-recordacao .al-tit{font-family:'Caveat',cursive;font-weight:600;letter-spacing:0;font-size:clamp(3.5rem,14vw,7rem);line-height:.95;margin:.5rem 0 0}
 .al-pol-txt .al-btns{justify-content:center}`;
 
 const CSS_LINHA = `
 .al-linha-h{max-width:72rem;margin:0 auto;padding:clamp(3rem,10vh,6rem) var(--pad) 0}
-.al-linha-h .al-tit{font-size:clamp(3.6rem,14vw,9rem);margin:.5rem 0 1.2rem}
+.al-linha-h .al-tit{font-size:clamp(2.5rem,9vw,4.5rem);margin:.5rem 0 0}
 .al-linha-h .al-intro{margin-bottom:1.2rem}
 .al-big{list-style:none;position:relative}
-.al-big::before{content:"";position:absolute;left:9px;top:0;bottom:0;width:2px;background:linear-gradient(var(--azul),transparent)}
+.al-big::before{content:"";position:absolute;left:9px;top:0;bottom:0;width:2px;background:var(--borda)}
 .al-big>li{position:relative;padding:0 0 2.6rem 2.6rem}
-.al-big>li::before{content:"";position:absolute;left:0;top:.15rem;width:20px;height:20px;border-radius:50%;background:var(--bg);border:4px solid var(--sol)}
-.al-big .al-mes{font-family:'Open Sans',sans-serif;font-style:italic;font-weight:500;font-size:1.2rem;letter-spacing:0;text-transform:none}
+.al-big>li::before{content:"";position:absolute;left:0;top:.15rem;width:20px;height:20px;border-radius:50%;background:var(--bg);border:4px solid ${P.dim}}
+.al-big .al-mes{font-size:.9375rem}
 .al-big .al-card{background:none;border:0;border-radius:0;overflow:visible;margin-top:.2rem}
 .al-big .al-nm{padding:.7rem 0 0;justify-content:flex-start}
 .al-big .al-nm b{font-size:clamp(1.5rem,3.6vw,2.3rem)}

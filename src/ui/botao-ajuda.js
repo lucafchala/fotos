@@ -15,7 +15,6 @@ export function botaoDeAjudaHTML(base) {
 }
 
 /** O CSS do botão de ajuda (vai no <style> de cada página que o usa). */
-export const BOTAO_AJUDA_CSS = `.aj-rodape a.aj-botao{display:inline-flex;align-items:center;gap:.45rem;min-height:44px;padding:0 1.1rem;border-radius:999px;border:1px solid var(--accent,#f9de4b);color:var(--accent,#f9de4b);font-weight:600;font-size:.92rem;text-decoration:none}
+export const BOTAO_AJUDA_CSS = `.aj-rodape a.aj-botao{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;padding:0 1.25rem;border-radius:999px;border:1px solid rgba(240,235,229,.24);background:rgba(240,235,229,.08);color:var(--txt,var(--text,#f0ebe5));font-weight:600;font-size:.9375rem;text-decoration:none;transition:background-color .15s cubic-bezier(.22,1,.36,1)}
 .aj-rodape a.aj-botao:hover{background:var(--accent,#f9de4b);color:#141a33}
-.aj-rodape{display:flex;justify-content:center;margin:0 0 1.2rem}`;
-
+.aj-rodape{display:flex;justify-content:center;margin:0 0 1.25rem}`;

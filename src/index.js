@@ -8,6 +8,7 @@ import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
 import { privacyHTML } from './ui/privacy.js';
 import { termsHTML } from './ui/terms.js';
+import { paginaDeErroHTML } from './ui/erro.js';
 import { aboutHTML } from './ui/about.js';
 import { gearHTML } from './ui/gear.js';
 import { legalHTML } from './ui/legal.js';
@@ -7015,7 +7016,7 @@ async function handleRestoreBackup(request, env) {
  * @param {number} status
  */
 function errorPage(code, message, status) {
-  return html(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${code} · fotos</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#0a0a0a;color:#555;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem}h1{font-size:4rem;font-weight:700;color:#1a1a1a;margin-bottom:1rem}p{margin-bottom:1.5rem;font-size:.9rem}.links{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}a{color:#666;text-decoration:none}a:hover{color:#aaa}</style></head><body><div><h1>${code}</h1><p>${message}</p><div class="links"><a href="/">← Voltar para a galeria</a><a href="/suporte">Precisa de ajuda? Suporte</a></div></div></body></html>`, status);
+  return html(paginaDeErroHTML(code, message), status);
 }
 
 function notFound() {

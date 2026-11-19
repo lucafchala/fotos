@@ -1,4 +1,4 @@
-import { escape, jsonParaScript, PERSON_LD, formatDatePT, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, NOME_CONSENTIMENTO_MIN, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
+import { escape, jsonParaScript, PERSON_LD, formatDatePT, formatDateCurta, FOOTER_CSS, hojeEmSaoPaulo, youtubeMaisFrom, sizedDriveThumb, driveSrcset, safeUrl, ACCESS_DECLARATIONS, isRestrictedAccess, NOME_CONSENTIMENTO_MIN, perfBootScript, footerLegalLinksHTML, igCreditButtonHTML, fontPreloadHTML, fontFaceCSS, photoPreconnectHTML, socialMetaHTML, ogImageFor, previewDescription, OG_IMAGE_W, OG_IMAGE_H, analyticsBeaconHTML } from '../utils.js';
 import { faixaDestaqueHTML, DESTAQUE_CSS } from './destaque.js';
 import { honeypotFieldHTML, HONEYPOT_CSS } from '../security.js';
 import { TURNSTILE_SITE_KEY } from '../config.js';
@@ -274,6 +274,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       --bg-card:#141414; --bg-card-2:#1c1c1c; --bg-card-hover:#242424; --bg-card-border:#3a3a3a;
       --border-dim:#191919; --border-dim-2:#444; --border-hair:#111;
       --footer-link:#888; --accent:#c0a060; --accent-hover:#d4b070; --cta-bg:#c0a060; --cta-text:#0a0a0a;
+      --thumb-bg:#1a1816; --ease:cubic-bezier(.22,1,.36,1);
       --ok-bg:#0d1a0d; --ok-border:#1a3a1a; --ok-text:#8ac88a; --ok-text-strong:#a8d8a8; --ok-text-muted:#6aaa6a; --ok-dot:#5aaa5a;
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#cc8888; --err-text-strong:#e0a0a0;
       --warn-bg:#1d1606; --warn-border:#4a3a12; --warn-text:#d8b25a; --warn-text-strong:#f0d080;
@@ -285,6 +286,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         --bg-card:#fff; --bg-card-2:#f6f3ef; --bg-card-hover:#efece7; --bg-card-border:#ddd9d4;
         --border-dim:#ddd9d4; --border-dim-2:#c8c2ba; --border-hair:#e5e1db;
         --footer-link:#6b6460; --accent:#8a6428; --accent-hover:#a67d38; --cta-bg:#8a6428; --cta-text:#faf7f3;
+        --thumb-bg:#e8e2da;
         --ok-bg:#eaf6ea; --ok-border:#b8dab8; --ok-text:#2e7d32; --ok-text-strong:#1b5e20; --ok-text-muted:#3d8b41; --ok-dot:#2e7d32;
         --err-bg:#fdecec; --err-border:#f2c6c6; --err-text:#b3261e; --err-text-strong:#8c1d18;
         --warn-bg:#fdf3dc; --warn-border:#e8d1a0; --warn-text:#7a5a17; --warn-text-strong:#5c4310;
@@ -298,11 +300,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     /* Chrome sobre a foto (back-pill, controles do carrossel) fica sempre
        escuro/translúcido nos dois temas — contraste contra a FOTO, não contra
        a página, então nunca usa as vars de tema. Idem .c-btn/.c-dots/.c-count. */
-    .back-pill{position:absolute;top:.875rem;left:.875rem;z-index:3;display:inline-flex;align-items:center;gap:.4rem;text-decoration:none;color:#f0ebe5;font-size:.8rem;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:.5rem .8rem .5rem .65rem;border-radius:20px;transition:background .2s}
-    .back-pill:hover{background:rgba(0,0,0,.75)}
-    .back-pill svg{width:14px;height:14px;flex-shrink:0}
+    .back-pill{position:absolute;top:.75rem;left:.75rem;z-index:3;display:inline-flex;align-items:center;gap:.375rem;min-height:44px;text-decoration:none;color:#f0ebe5;font-size:.875rem;font-weight:500;background:rgba(10,10,10,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:0 1rem 0 .75rem;border-radius:999px;transition:background .16s var(--ease)}
+    .back-pill:hover{background:rgba(10,10,10,.88)}
+    .back-pill svg{width:16px;height:16px;flex-shrink:0}
     /* hero */
-    .hero{width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;position:relative;display:flex;align-items:center;justify-content:center}
+    .hero{width:100%;max-height:72vh;overflow:hidden;background:var(--thumb-bg);position:relative;display:flex;align-items:center;justify-content:center}
     /* max-width/max-height + width/height auto: a foto encolhe pra caber
        mantendo a proporção real, em vez de ser cortada — aspect-ratio+cover
        às vezes cortava cabeças em foto de grupo. */
@@ -321,13 +323,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .hero-foto img,.carousel img{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
     .hero-blur-img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08);cursor:default}
     ${proporcao ? `/* proporção medida no Drive (#254) */ .hero-foto,.carousel,.hero-blur-img{aspect-ratio:${proporcao}}` : ''}
-    .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#3a3a3a}
-    .hero-soon-ov span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#888;font-weight:500}
+    .hero-soon-ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:var(--text-dim)}
+    .hero-soon-ov span{font-size:.875rem;font-weight:500;letter-spacing:0;color:var(--text-dim)}
     .hero-video{aspect-ratio:16/9;max-height:72vh}
     /* Mais vídeos (#209): 16:9 por padrão; vertical (Shorts/reels) em 9:16,
        sem faixa preta, com largura contida para não ocupar a tela inteira. */
     .mais-videos{margin:1.5rem 0}
-    .mv-titulo{font-size:.7rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);margin-bottom:.75rem}
+    .mv-titulo{font-size:.875rem;font-weight:500;letter-spacing:0;color:var(--text-muted);margin-bottom:.75rem}
     .mv-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem;align-items:start}
     .mv{position:relative;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden}
     .mv-vertical{aspect-ratio:9/16;max-width:280px}
@@ -338,15 +340,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .yt-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:72px;height:72px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center;transition:background .18s,transform .18s;backdrop-filter:blur(4px)}
     .yt-play svg{width:30px;height:30px;margin-left:4px}
     .yt-facade:hover .yt-play,.yt-facade:focus-visible .yt-play{background:var(--accent);transform:translate(-50%,-50%) scale(1.06)}
-    .hero-ph{height:260px;display:flex;align-items:center;justify-content:center;color:#333}
-    .hero-soon{flex-direction:column;gap:1rem;color:#3a3a3a;height:320px}
-    .hero-soon span{font-size:.78rem;letter-spacing:.22em;text-transform:uppercase;color:#666;font-weight:500}
-    .btn-soon{background:var(--bg-card);color:var(--text-muted);border:1px dashed var(--bg-card-border);cursor:pointer}
+    .hero-ph{height:260px;display:flex;align-items:center;justify-content:center;color:var(--text-dim)}
+    .hero-soon{flex-direction:column;gap:1rem;color:var(--text-dim);height:320px}
+    .hero-soon span{font-size:.875rem;font-weight:500;letter-spacing:0;color:var(--text-dim)}
+    .btn-soon{background:var(--bg-card);color:var(--text-muted);border:1px solid var(--bg-card-border);cursor:pointer}
     /* Reseta o hover genérico de .btn-drive: no touch, o opacity:.9 do hover
        ficava "preso" sem mouseleave, escurecendo o botão à toa. */
     .btn-soon:hover,.btn-soon:active{background:var(--bg-card);opacity:1;transform:none}
     /* carousel */
-    .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:#0e0e0e;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center}
+    .carousel{position:relative;width:100%;max-height:72vh;overflow:hidden;background:var(--thumb-bg);user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center}
     .carousel img{display:block;transition:opacity .25s ease;cursor:zoom-in}
     .hero picture,.carousel picture{display:contents}
     .c-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.55);border:none;color:#fff;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;transition:background .2s;backdrop-filter:blur(2px)}
@@ -360,38 +362,42 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .c-dots{position:absolute;bottom:2.5rem;left:50%;transform:translateX(-50%);display:flex;gap:.4rem;z-index:2}
     .c-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);background-clip:content-box;box-sizing:content-box;padding:5px;cursor:pointer;transition:background .2s}
     .c-dot.on{background:#fff;background-clip:content-box}
-    .c-count{position:absolute;bottom:.75rem;right:.875rem;font-size:.7rem;font-weight:500;color:rgba(255,255,255,.5);background:rgba(0,0,0,.4);padding:.2rem .5rem;border-radius:20px;backdrop-filter:blur(4px)}
-    .swipe-hint{position:absolute;bottom:.75rem;left:.875rem;font-size:.7rem;color:rgba(255,255,255,.6);background:rgba(0,0,0,.4);padding:.2rem .5rem;border-radius:20px;backdrop-filter:blur(4px);opacity:0;transition:opacity .4s;pointer-events:none;z-index:2}
+    .c-count{position:absolute;bottom:.75rem;right:.875rem;font-size:.75rem;font-weight:500;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.7);background:rgba(10,10,10,.55);padding:.25rem .5rem;border-radius:20px;backdrop-filter:blur(4px)}
+    .swipe-hint{position:absolute;bottom:.75rem;left:.875rem;font-size:.75rem;color:rgba(255,255,255,.8);background:rgba(10,10,10,.55);padding:.25rem .5rem;border-radius:20px;backdrop-filter:blur(4px);opacity:0;transition:opacity .4s;pointer-events:none;z-index:2}
     .swipe-hint.show{opacity:1}
     /* content */
     main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 2.5rem}
-    .breadcrumbs{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:1.25rem;font-size:.73rem;color:var(--text-dim)}
-    .breadcrumbs a{color:var(--text-dim-2);text-decoration:none;transition:color .2s}
+    .breadcrumbs{display:flex;align-items:center;gap:0 .5rem;flex-wrap:wrap;margin-bottom:.5rem;font-size:.8125rem;color:var(--text-dim)}
+    .crumb{display:inline-flex;align-items:center;gap:.5rem;min-width:0}
+    .crumb:not(.crumb-atual){white-space:nowrap}
+    .crumb-atual{min-height:44px}
+    .breadcrumbs a{display:inline-flex;align-items:center;min-height:44px;color:var(--text-dim-2);text-decoration:none;transition:color .2s}
     .breadcrumbs a:hover{color:var(--text-2)}
     .breadcrumbs .sep{color:var(--border-dim-2)}
-    .meta{margin-bottom:.875rem;display:flex;align-items:center;gap:.875rem;flex-wrap:wrap}
-    .date-chip{font-size:.65rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim)}
+    .meta{margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem 1rem;flex-wrap:wrap}
+    .date-chip{font-size:.8125rem;font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text-dim)}
     /* Modo apresentação (#212). O botão nasce com [hidden] e só o script o
        mostra: sem JS não há lightbox, e um botão morto seria pior que nenhum. */
-    .slideshow-btn{display:inline-flex;align-items:center;gap:.3rem;font:inherit;font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim);background:none;border:1px solid var(--border);border-radius:20px;padding:.25rem .6rem;cursor:pointer}
+    .slideshow-btn{display:inline-flex;align-items:center;gap:.375rem;min-height:44px;font:inherit;font-size:.8125rem;font-weight:500;letter-spacing:0;color:var(--text-muted);background:none;border:1px solid var(--bg-card-border);border-radius:999px;padding:0 .875rem;cursor:pointer}
     .slideshow-btn:hover{color:var(--accent);border-color:var(--accent)}
     .slideshow-btn[hidden]{display:none}
     .lb-play{position:absolute;bottom:1rem;left:1rem;background:rgba(0,0,0,.55);border:none;color:#fff;min-width:44px;height:44px;border-radius:22px;padding:0 .9rem;font:inherit;font-size:.8rem;cursor:pointer;z-index:2;display:none}
     .lightbox-ov.slideshow .lb-play{display:block}
-    .video-chip{display:inline-flex;align-items:center;gap:.3rem;font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
-    .video-chip svg{width:11px;height:11px}
-    h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:600;line-height:1.15;margin:.4rem 0 2rem}
+    .video-chip{display:inline-flex;align-items:center;gap:.375rem;font-size:.8125rem;font-weight:500;letter-spacing:0;color:var(--text-muted)}
+    .video-chip svg{width:10px;height:10px}
+    h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:500;line-height:1.15;margin:.25rem 0 2rem}
     .desc{font-size:.95rem;line-height:1.85;color:var(--text-2);white-space:pre-wrap;word-break:break-word;margin-bottom:2.75rem}
     .drive-wrap{margin-bottom:3rem}
-    .btn-drive{display:inline-flex;align-items:center;gap:.65rem;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.9rem 1.6rem;border-radius:9px;font-size:.9rem;font-weight:600;letter-spacing:.02em;cursor:pointer;transition:background .18s,transform .15s;width:100%;justify-content:center}
+    .btn-drive{display:inline-flex;align-items:center;gap:.5rem;min-height:48px;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.75rem 1.5rem;border-radius:10px;font-size:.9375rem;font-weight:500;letter-spacing:0;text-decoration:none;cursor:pointer;transition:opacity .16s var(--ease),transform .16s var(--ease);width:100%;justify-content:center}
     @media(min-width:400px){.btn-drive{width:auto}}
-    .btn-drive:hover{opacity:.9;transform:translateY(-2px)}
-    .btn-drive svg{width:18px;height:18px;flex-shrink:0}
+    .btn-drive:hover{opacity:.92;transform:translateY(-1px);text-decoration:none}
+    .btn-drive-alt{margin-top:.5rem;min-height:44px;background:none;border:none;color:var(--text-2);text-decoration:underline;text-underline-offset:3px;cursor:pointer;font:inherit;font-size:.875rem;padding:0}
+    .btn-drive svg{width:16px;height:16px;flex-shrink:0}
     /* sticky mobile CTA */
     .sticky-cta{display:none}
     .sticky-cta svg{width:16px;height:16px;flex-shrink:0}
     @media(max-width:559px){
-      .sticky-cta{display:flex;align-items:center;justify-content:center;gap:.5rem;position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:40;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.85rem;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.5);transform:translateY(160%);transition:transform .25s ease}
+      .sticky-cta{display:flex;align-items:center;justify-content:center;gap:.5rem;position:fixed;left:1rem;right:1rem;bottom:1rem;z-index:40;background:var(--cta-bg);color:var(--cta-text);border:none;min-height:48px;padding:.75rem;border-radius:10px;font-size:.9375rem;font-weight:500;text-decoration:none;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.35);transform:translateY(160%);transition:transform .25s ease}
       .sticky-cta.show{transform:translateY(0)}
       /* Clearance for the fixed CTA lives at the very end of the page (after
          the footer), not as dead space between the credits and the footer —
@@ -400,15 +406,18 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     }
     /* credits */
     .credits{border-top:1px solid var(--border-dim);padding-top:2.25rem}
-    .credits-title{font-size:.65rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);margin-bottom:1rem}
+    .credits-title{font-size:.875rem;font-weight:500;letter-spacing:0;color:var(--text-muted);margin-bottom:.75rem}
     .credits-list{display:flex;flex-direction:column;gap:.5rem;margin-bottom:1rem}
-    .credits-list a,.credits-list span{font-size:.85rem;line-height:1.5;color:var(--text-muted);text-decoration:none;transition:color .2s;display:block}
-    .credits-list span strong,.credits-list a strong{color:var(--text);font-weight:600}
+    .credits-list a,.credits-list span{font-size:.875rem;line-height:1.5;color:var(--text-muted);text-decoration:none;transition:color .2s;display:block}
+    .credits-list a.ig-credit-btn{display:inline-flex}
+    .credits-list .credit-link{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;word-break:break-all}
+    .credits-list .credit-link svg{flex-shrink:0}
+    .credits-list span strong,.credits-list a strong{color:var(--text);font-weight:500}
     .credits-list a:hover{color:var(--text-2)}
-    .ig-credit-btn{display:inline-flex;align-items:center;gap:.6rem;background:var(--bg-card-2);border:1px solid var(--bg-card-border);color:var(--text);text-decoration:none;padding:.65rem 1rem;border-radius:24px;font-size:.85rem;font-weight:500;transition:border-color .2s,background .2s,transform .15s}
-    .ig-credit-btn:hover{background:var(--bg-card-hover);border-color:#dc2743;transform:translateY(-1px)}
+    .ig-credit-btn{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;background:var(--bg-card-2);border:1px solid var(--bg-card-border);color:var(--text);text-decoration:none;padding:0 1rem;border-radius:999px;font-size:.875rem;font-weight:400;transition:border-color .16s var(--ease),background .16s var(--ease)}
+    .ig-credit-btn:hover{background:var(--bg-card-hover);border-color:var(--text-dim)}
     .ig-credit-icon{display:inline-flex;flex-shrink:0}
-    .ig-credit-text strong{font-weight:700;color:var(--text)}
+    .ig-credit-text strong{font-weight:500;color:var(--text)}
     /* Na lista de créditos o botão do Instagram vira mais uma linha do grupo,
        não um pill solto — a versão na guide-box do modal mantém o visual original. */
     .credits-list .ig-credit-btn{display:inline-flex;align-items:center;background:none;border:none;padding:0;border-radius:0;color:var(--text-muted);gap:.5rem}
@@ -424,17 +433,14 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     /* footer — plain links, industry-standard, no button chrome. Emphasis on
        Share/removal comes from contrast + weight + being the top row, not
        from a button shape. */
-    footer{padding:2rem 1.5rem 3rem;border-top:1px solid var(--border-hair);margin-top:2rem;display:flex;flex-direction:column;align-items:center;gap:1rem}
-    .footer-brand{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s;flex-shrink:0}
+    footer{padding:2rem 1.5rem 3rem;border-top:1px solid var(--border-hair);margin-top:2rem;display:flex;flex-direction:column;align-items:center;gap:.5rem}
+    .footer-brand{display:inline-flex;align-items:center;min-height:44px;color:var(--footer-link);font-size:.9375rem;font-weight:500;letter-spacing:0;text-decoration:none;transition:color .2s;flex-shrink:0}
     .footer-brand:hover{color:var(--text-2)}
-    .footer-actions-primary{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
-    .action-btn{display:inline-flex;align-items:center;gap:.4rem;background:none;border:none;color:var(--text-2);padding:.35rem 0;font-size:.85rem;font-weight:600;letter-spacing:.02em;cursor:pointer;text-decoration:none;transition:color .2s;white-space:nowrap}
+    .footer-actions-primary{display:flex;align-items:center;gap:0 1.5rem;flex-wrap:wrap;justify-content:center}
+    .action-btn{display:inline-flex;align-items:center;gap:.5rem;min-height:44px;background:none;border:none;color:var(--text-2);padding:0;font-family:inherit;font-size:.875rem;font-weight:500;letter-spacing:0;cursor:pointer;text-decoration:none;transition:color .2s;white-space:nowrap}
     .action-btn:hover{color:var(--text);text-decoration:underline;text-underline-offset:3px}
-    .action-btn svg{width:15px;height:15px;flex-shrink:0}
-    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center;margin-top:.25rem}
-    .legal-link{display:inline-flex;align-items:center;gap:.4rem;background:none;border:none;color:var(--text-muted);padding:.35rem 0;font-size:.8rem;font-weight:500;letter-spacing:.02em;text-decoration:none;transition:color .2s;white-space:nowrap}
-    .legal-link:hover{color:var(--text-2);text-decoration:underline;text-underline-offset:3px}
-    .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
+    .action-btn svg{width:16px;height:16px;flex-shrink:0}
+    ${FOOTER_CSS}
     /* shared modal base — the scrim behind the sheet stays a fixed dark
        translucency regardless of theme (dimming, not page chrome); only the
        sheet itself (the card floating on it) follows the vars. */
@@ -448,8 +454,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .m-close{background:none;border:1px solid var(--border-dim);color:var(--text-dim);width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:border-color .2s,color .2s}
     .m-close:hover{border-color:var(--border-dim-2);color:var(--text-2)}
     /* drive modal */
-    .guide-box{border-left:3px solid var(--accent);background:var(--bg-card);border-radius:0 10px 10px 0;padding:1.125rem 1.25rem;margin-bottom:1.25rem}
-    .guide-title{font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:.75rem}
+    .guide-box{border:1px solid var(--bg-card-border);background:var(--bg-card-2);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.25rem}
+    .guide-title{font-size:.9375rem;font-weight:500;letter-spacing:0;color:var(--text);margin-bottom:.75rem}
     .guide-note{font-size:.85rem;line-height:1.65;color:var(--text-2);margin-bottom:.875rem}
     .guide-note:last-child{margin-bottom:0}
     .guide-credit{color:var(--text-muted)}
@@ -507,7 +513,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     /* removal modal */
     .rem-intro{font-size:.875rem;color:var(--text-muted);line-height:1.6;margin-bottom:1.5rem}
     .rem-field{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.125rem}
-    .rem-field label{font-size:.7rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim)}
+    .rem-field label{font-size:.875rem;font-weight:500;letter-spacing:0;color:var(--text-muted)}
     .rem-field input[type=text],.rem-field input[type=email],.rem-field input[type=tel],.rem-field input[type=url],.rem-field input[type=number],.rem-field textarea{width:100%;background:var(--bg-card);border:1px solid var(--border-dim);color:var(--text);padding:.75rem .875rem;border-radius:8px;font-size:.875rem;outline:none;transition:border-color .2s;-webkit-appearance:none}
     .rem-field input:focus,.rem-field textarea:focus{border-color:var(--bg-card-border)}
     .rem-field input.bad,.rem-field textarea.bad{border-color:var(--err-border)}
@@ -536,11 +542,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .rem-success{text-align:center;padding:2rem 0;color:var(--ok-text);font-size:.9rem;line-height:1.7}
     .rem-success svg{margin-bottom:.75rem;color:var(--ok-dot)}
     /* cookie notice */
-    .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:10px;padding:.875rem 1rem;display:none;align-items:center;gap:.875rem;font-size:.76rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+    .cookie-notice{position:fixed;left:1rem;right:1rem;bottom:1rem;max-width:520px;margin:0 auto;background:var(--bg-card);border:1px solid var(--bg-card-border);border-radius:12px;padding:.75rem 1rem;display:none;align-items:center;gap:1rem;font-size:.8125rem;color:var(--text-muted);line-height:1.5;z-index:80;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+    /* No desktop o aviso encosta no canto de baixo e deixa o centro livre. */
+    @media(min-width:900px){.cookie-notice{left:auto;right:1rem;margin:0;max-width:440px}}
     .cookie-notice.show{display:flex}
     .cookie-notice a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
     .cookie-notice a:hover{text-decoration:underline}
-    .cookie-notice button{flex-shrink:0;background:var(--cta-bg);color:var(--cta-text);border:none;padding:.5rem 1rem;border-radius:7px;font-size:.74rem;font-weight:600;cursor:pointer;transition:opacity .18s}
+    .cookie-notice button{flex-shrink:0;min-height:44px;background:var(--cta-bg);color:var(--cta-text);border:none;padding:0 1rem;border-radius:8px;font-size:.8125rem;font-weight:500;cursor:pointer;transition:opacity .16s var(--ease)}
     .cookie-notice button:hover{opacity:.85}
     /* lightbox — chrome sits on a full-bleed dark scrim, same "always dark,
        contrast against the photo not the page" rule as the carousel controls. */
@@ -578,21 +586,19 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   <div class="hero-stage">
     ${heroHTML}
     <a href="/" class="back-pill" aria-label="Voltar para todos os projetos">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>
-      <span>todos os projetos</span>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+      <span>Todos os projetos</span>
     </a>
   </div>
 
   <main>
     <nav class="breadcrumbs" aria-label="Breadcrumb">
-      <a href="/">Início</a>
-      <span class="sep">·</span>
-      ${year ? `<a href="/?year=${escape(year)}">${escape(year)}</a>
-      <span class="sep">·</span>` : ''}
-      <span>${escape(event.title)}</span>
+      <span class="crumb"><a href="/">Início</a></span>
+      ${year ? `<span class="crumb"><span class="sep" aria-hidden="true">·</span><a href="/?year=${escape(year)}">${escape(year)}</a></span>` : ''}
+      <span class="crumb crumb-atual"><span class="sep" aria-hidden="true">·</span><span>${escape(event.title)}</span></span>
     </nav>
     <div class="meta">
-      ${event.date ? `<span class="date-chip">${escape(formatDatePT(event.date))}</span>` : ''}
+      ${event.date ? `<span class="date-chip">${escape(formatDateCurta(event.date))}</span>` : ''}
       ${(hasVideos || ytId || maisVideos.length) && !event.comingSoon ? `<span class="video-chip">${iconPlay()} Com vídeos</span>` : ''}
       ${photos.length > 1 && !event.comingSoon ? `<button type="button" class="slideshow-btn" data-action="startSlideshow" hidden>${iconPlay()} Apresentação</button>` : ''}
     </div>
@@ -611,8 +617,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
             Ver e baixar as fotos
           </a>
-          <p class="drive-dl-tip" style="text-align:left">📸 Toque numa foto para ver em tela cheia. Para baixar várias, marque com o <strong>coração</strong> e use <strong>Favoritas → Baixar</strong> (ou <strong>Baixar tudo</strong>) e escolha <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
-          <button type="button" class="btn-drive-alt" data-action="openModal" style="margin-top:.75rem;background:none;border:none;color:var(--text-2);text-decoration:underline;cursor:pointer;font-size:.85rem">Prefere o Google Drive? Abrir no Drive</button>`
+          <p class="drive-dl-tip" style="text-align:left">Toque numa foto para ver em tela cheia. Para baixar várias, marque com o <strong>coração</strong> e use <strong>Favoritas → Baixar</strong> (ou <strong>Baixar tudo</strong>) e escolha <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
+          <button type="button" class="btn-drive-alt" data-action="openModal">Prefere o Google Drive? Abrir no Drive</button>`
           : `<button class="btn-drive" data-action="openModal">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
             ${ctaLabel}
@@ -623,7 +629,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       <div class="credits-title">Créditos</div>
       <div class="credits-list">
         ${event.eventCredits ? `<span>Em colaboração com: <strong>${escape(event.eventCredits)}</strong></span>` : ''}
-        ${safeUrl(event.projectUrl) ? `<a href="${escape(safeUrl(event.projectUrl))}" target="_blank" rel="noopener">🔗 ${escape(event.projectUrl)}</a>` : ''}
+        ${safeUrl(event.projectUrl) ? `<a href="${escape(safeUrl(event.projectUrl))}" target="_blank" rel="noopener" class="credit-link"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.5-1.5"/></svg><span>${escape(event.projectUrl)}</span></a>` : ''}
         ${igCreditButtonHTML('1')}
       </div>
     </div>
@@ -633,7 +639,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     <a href="/" class="footer-brand">fotos · Luca F. Chala</a>
     <div class="footer-actions-primary">
       <button class="action-btn" id="btn-share-native" style="display:none" data-action="doNativeShare">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
         Compartilhar
       </button>
       <!-- encodeURIComponent ANTES do escape(), e os dois são necessários: o
@@ -642,15 +648,15 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
            como fim do parâmetro — "Turma A & B" chegava como "Veja as fotos de
            Turma A " e o resto da frase, com o link, sumia. -->
       <a href="https://wa.me/?text=${escape(encodeURIComponent(`Veja as fotos de ${event.title} em ${SITE_URL.replace(/^https:\/\//, '')}/${event.slug}`))}" target="_blank" rel="noopener" class="action-btn" id="btn-share-wa">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 104 16.1L2 22z"/></svg>
         WhatsApp
       </a>
       <button class="action-btn" id="btn-copy-link" style="display:none" data-action="copyLink">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
         <span id="copy-label">Copiar link</span>
       </button>
       <button class="action-btn" data-action="openRemModal">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         Solicitar remoção de foto
       </button>
     </div>
@@ -682,7 +688,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         ${event.eventCredits ? `<p class="guide-note guide-credit">Em colaboração com: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
       </div>
       <div id="drive-adblock" class="adblock-warn" style="display:none">
-        <strong>⚠️ Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" data-action="reload">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
+        <strong>Bloqueador de anúncios detectado.</strong> Você ainda pode acessar as fotos, mas a verificação de segurança não carregou. Para registrarmos seu consentimento de uso de imagem corretamente, recomendamos <button type="button" data-action="reload">desativar o bloqueador e recarregar</button> (e ativar o JavaScript, caso esteja desativado).
       </div>
       <div id="drive-gate">
         <!--
@@ -767,8 +773,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
               Ir para o Google Drive
             </a>`}
         </div>
-        <p id="galeria-tip" class="drive-dl-tip"${galeriaPublica ? '' : ' style="display:none"'}>📸 <strong>Novo:</strong> toque em <strong>"Ver as fotos e baixar aqui no site"</strong>. Lá você vê todas as fotos, marca as que quiser com o <strong>coração</strong> e baixa pelas <strong>Favoritas</strong> (ou <strong>Baixar tudo</strong>) e baixa <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou em <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
-        <p class="drive-dl-tip">💡 No Drive, selecione todas as fotos (ícone ⋮ ou Ctrl/Cmd+A) e use <strong>"Fazer download"</strong> para baixar tudo de uma vez em um .zip.</p>
+        <p id="galeria-tip" class="drive-dl-tip"${galeriaPublica ? '' : ' style="display:none"'}><strong>Novo:</strong> toque em <strong>"Ver as fotos e baixar aqui no site"</strong>. Lá você vê todas as fotos, marca as que quiser com o <strong>coração</strong> e baixa pelas <strong>Favoritas</strong> (ou <strong>Baixar tudo</strong>) e baixa <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou em <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
+        <p class="drive-dl-tip">No Drive, selecione todas as fotos (ícone ⋮ ou Ctrl/Cmd+A) e use <strong>"Fazer download"</strong> para baixar tudo de uma vez em um .zip.</p>
         <p class="drive-consent-note">Ao acessar, registramos data, hora e dados técnicos do acesso para comprovação, conforme a <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
       </div>
     </div>
@@ -842,7 +848,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <span style="font-size:.72rem;color:var(--text-muted);line-height:1.5">Li e concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:var(--text-2)">política de privacidade</a> e os <a href="/termos" target="_blank" rel="noopener" style="color:var(--text-2)">termos de uso</a>, e autorizo o uso dos meus dados para processar esta solicitação.</span>
         </label>
         <div id="rem-adblock" class="adblock-warn" style="display:none">
-          <strong>⚠️ Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" data-action="reload">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
+          <strong>Bloqueador de anúncios detectado.</strong> A verificação de segurança necessária para enviar esta solicitação não carregou. Desative o bloqueador para este site e ative o JavaScript (caso esteja desativado), depois <button type="button" data-action="reload">recarregue a página</button>. Se preferir, fale pelo <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a>.
         </div>
         ${honeypotFieldHTML()}
         <div id="rem-turnstile" style="margin-top:1rem"></div>
@@ -871,7 +877,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         </button>
       </div>
       ${eventIsFuture
-        ? `<p class="rem-intro">Opa, parece que você está adiantando! 😂 Esse evento ainda nem aconteceu — as fotos aparecem por aqui depois dele.</p>`
+        ? `<p class="rem-intro">Opa, parece que você está adiantando! Esse evento ainda nem aconteceu — as fotos aparecem por aqui depois dele.</p>`
         : `<p class="rem-intro">Poxa, as fotos deste evento ainda não estão prontas. Peço desculpas pela demora — elas devem ficar disponíveis em breve.</p>
         <a href="/suporte" class="btn-drive-go" style="text-decoration:none">Falar comigo</a>`}
     </div>
@@ -2140,13 +2146,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     function copyLink() {
       var label = document.getElementById('copy-label');
       navigator.clipboard.writeText(window.location.href).then(function() {
-        if (label) { label.textContent = 'Copiado! ✓'; setTimeout(function(){ label.textContent = 'Copiar link'; }, 2000); }
+        if (label) { label.textContent = 'Copiado'; setTimeout(function(){ label.textContent = 'Copiar link'; }, 2000); }
       }).catch(function() {
         try {
           var t = document.createElement('textarea');
           t.value = window.location.href;
           document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
-          if (label) { label.textContent = 'Copiado! ✓'; setTimeout(function(){ label.textContent = 'Copiar link'; }, 2000); }
+          if (label) { label.textContent = 'Copiado'; setTimeout(function(){ label.textContent = 'Copiar link'; }, 2000); }
         } catch(_) {}
       });
     }

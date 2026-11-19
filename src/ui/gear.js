@@ -1,4 +1,4 @@
-import { footerLegalLinksHTML, fontPreloadHTML, fontFaceCSS, socialMetaHTML } from '../utils.js';
+import { footerLegalLinksHTML, FOOTER_CSS, fontPreloadHTML, fontFaceCSS, socialMetaHTML } from '../utils.js';
 
 // Static "Equipamento" (gear list) page — mirrors about.js's structure (same
 // head, back link, footer, CSS var schema for prefers-color-scheme light
@@ -27,7 +27,7 @@ export function gearHTML() {
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#b0a89e; --text-heading:#e0d8d0; --text-strong:#d0c8be;
       --text-muted:#999; --text-dim:#8c8c8c; --text-dim-2:#888888; --border-dim:#1e1e1e; --border-hair:#141414;
-      --footer-link:#888; --accent:#c0a060;
+      --footer-link:#888; --accent:#c0a060; --ease:cubic-bezier(.22,1,.36,1);
     }
     @media (prefers-color-scheme: light) {
       :root{
@@ -39,35 +39,33 @@ export function gearHTML() {
     body{font-family:'Inter',sans-serif;background:var(--bg-page);color:var(--text);min-height:100vh}
     :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     header{padding:1.25rem 1.5rem}
-    .back{display:inline-flex;align-items:center;gap:.35rem;text-decoration:none;color:var(--text-dim-2);font-size:.8rem;letter-spacing:.04em;transition:color .2s}
+    .back{display:inline-flex;align-items:center;gap:.375rem;min-height:44px;text-decoration:none;color:var(--text-dim-2);font-size:.875rem;letter-spacing:0;transition:color .16s var(--ease)}
     .back:hover{color:var(--text-2)}
-    .back svg{width:14px;height:14px}
+    .back svg{width:16px;height:16px}
     main{max-width:680px;margin:0 auto;padding:2rem 1.5rem 6rem}
-    h1{font-size:1.5rem;font-weight:600;margin-bottom:.4rem}
-    .tagline{font-size:.85rem;color:var(--text-muted);margin-bottom:2.25rem;letter-spacing:.02em}
-    h2{font-size:1rem;font-weight:600;margin:2.25rem 0 .5rem;color:var(--text-heading)}
-    h3{font-size:.82rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);margin:1.25rem 0 .5rem}
-    p,li{font-size:.9rem;line-height:1.75;color:var(--text-2)}
+    h1{font-size:1.75rem;font-weight:500;line-height:1.15;margin-bottom:.5rem}
+    .tagline{font-size:.9375rem;color:var(--text-muted);margin-bottom:2rem;letter-spacing:0}
+    h2{font-size:1.125rem;font-weight:500;margin:2.5rem 0 .75rem;color:var(--text-heading)}
+    h3{font-size:.875rem;font-weight:500;letter-spacing:0;color:var(--text-muted);margin:1.25rem 0 .5rem}
+    p,li{font-size:.9375rem;line-height:1.75;color:var(--text-2)}
     p{margin-bottom:.75rem}
     ul{margin:.25rem 0 .75rem;padding-left:1.25rem}
     li{margin-bottom:.35rem}
-    strong{color:var(--text-strong);font-weight:600}
+    strong{color:var(--text-strong);font-weight:500}
     a{color:var(--accent);text-decoration:none}
     a:hover{text-decoration:underline}
-    .intro{font-size:.92rem;color:var(--text-muted);line-height:1.7;margin-bottom:.5rem}
-    footer{text-align:center;padding:2rem 1rem;border-top:1px solid var(--border-hair);display:flex;gap:1.5rem;justify-content:center;flex-wrap:wrap}
-    footer a{color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.12em;transition:color .2s}
+    .intro{font-size:1rem;color:var(--text-muted);line-height:1.7;margin-bottom:.5rem}
+    footer{text-align:center;padding:2rem 1rem 2.5rem;border-top:1px solid var(--border-hair);display:flex;flex-direction:column;align-items:center}
+    footer a{color:var(--footer-link);font-size:.8125rem;text-decoration:none;letter-spacing:0;transition:color .2s}
+    footer > a{display:inline-flex;align-items:center;min-height:44px}
     footer a:hover{color:var(--text-2)}
-    .footer-actions-legal{display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;justify-content:center}
-    .legal-link{display:inline-flex;align-items:center;gap:.4rem;color:var(--footer-link);font-size:.8rem;text-decoration:none;letter-spacing:.1em;transition:color .2s}
-    .legal-link:hover{color:var(--text-2)}
-    .footer-copyright{font-size:.75rem;color:var(--footer-link);letter-spacing:.03em;text-align:center;width:100%;margin-top:.5rem}
+    ${FOOTER_CSS}
   </style>
 </head>
 <body>
   <header>
     <a href="/" class="back">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
       Voltar
     </a>
   </header>
