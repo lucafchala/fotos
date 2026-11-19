@@ -317,8 +317,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
        delas. Em qualquer caso a foto encolhe para caber INTEIRA
        (contain), nunca cortada: foto de outra proporção ganha faixa escura do
        lado ou em cima, como já acontecia no desktop. Fixa, a caixa também não
-       muda de altura de uma foto do carrossel para a outra — nem no modo
-       apresentação, que troca a foto sem toque nenhum. */
+       muda de altura de uma foto do carrossel para a outra. */
     .hero-foto,.carousel{aspect-ratio:3/2;max-height:72vh}
     .hero-foto img,.carousel img{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
     .hero-blur-img{width:100%;max-height:72vh;aspect-ratio:3/2;object-fit:cover;display:block;filter:blur(16px);transform:scale(1.08);cursor:default}
@@ -367,22 +366,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .swipe-hint.show{opacity:1}
     /* content */
     main{max-width:680px;margin:0 auto;padding:2.25rem 1.5rem 2.5rem}
-    .breadcrumbs{display:flex;align-items:center;gap:0 .5rem;flex-wrap:wrap;margin-bottom:.5rem;font-size:.8125rem;color:var(--text-dim)}
-    .crumb{display:inline-flex;align-items:center;gap:.5rem;min-width:0}
-    .crumb:not(.crumb-atual){white-space:nowrap}
-    .crumb-atual{min-height:44px}
-    .breadcrumbs a{display:inline-flex;align-items:center;min-height:44px;color:var(--text-dim-2);text-decoration:none;transition:color .2s}
-    .breadcrumbs a:hover{color:var(--text-2)}
-    .breadcrumbs .sep{color:var(--border-dim-2)}
     .meta{margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem 1rem;flex-wrap:wrap}
     .date-chip{font-size:.8125rem;font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text-dim)}
-    /* Modo apresentação (#212). O botão nasce com [hidden] e só o script o
-       mostra: sem JS não há lightbox, e um botão morto seria pior que nenhum. */
-    .slideshow-btn{display:inline-flex;align-items:center;gap:.375rem;min-height:44px;font:inherit;font-size:.8125rem;font-weight:500;letter-spacing:0;color:var(--text-muted);background:none;border:1px solid var(--bg-card-border);border-radius:999px;padding:0 .875rem;cursor:pointer}
-    .slideshow-btn:hover{color:var(--accent);border-color:var(--accent)}
-    .slideshow-btn[hidden]{display:none}
-    .lb-play{position:absolute;bottom:1rem;left:1rem;background:rgba(0,0,0,.55);border:none;color:#fff;min-width:44px;height:44px;border-radius:22px;padding:0 .9rem;font:inherit;font-size:.8rem;cursor:pointer;z-index:2;display:none}
-    .lightbox-ov.slideshow .lb-play{display:block}
     .video-chip{display:inline-flex;align-items:center;gap:.375rem;font-size:.8125rem;font-weight:500;letter-spacing:0;color:var(--text-muted)}
     .video-chip svg{width:10px;height:10px}
     h1{font-size:clamp(1.5rem,6vw,2.25rem);font-weight:500;line-height:1.15;margin:.25rem 0 2rem}
@@ -487,6 +472,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     #drive-gate-hint{font-size:.82rem;color:var(--warn-text);line-height:1.5;margin-top:.875rem}
     .drive-dl-tip{font-size:.82rem;color:var(--text-2);line-height:1.55;margin-top:1rem;padding:.7rem .875rem;background:var(--bg-card);border-radius:8px}
     .drive-dl-tip strong{color:var(--text)}
+    /* Como baixar (4.6.0): três passos curtos no lugar do parágrafo. O resto
+       (redes sociais ou tamanho máximo, Salvar no Fotos) a própria folha de
+       download explica na hora de escolher. */
+    .passos-baixar{list-style:none;counter-reset:passo;margin:1rem 0 0;padding:0;display:flex;flex-direction:column;gap:.5rem;font-size:.875rem;color:var(--text-2);line-height:1.4;text-align:left}
+    .passos-baixar li{counter-increment:passo;display:flex;align-items:baseline;gap:.625rem}
+    .passos-baixar li::before{content:counter(passo);flex:none;width:1.375rem;height:1.375rem;border-radius:50%;background:var(--bg-card);color:var(--text);font-size:.75rem;font-weight:600;display:inline-flex;align-items:center;justify-content:center;transform:translateY(-.0625rem)}
+    .passos-baixar strong{color:var(--text)}
     .drive-consent-note{font-size:.8rem;color:var(--text-dim);line-height:1.5;margin-top:.875rem}
     .drive-consent-note a{color:var(--footer-link)}
     .drive-locked .btn-drive-go,.drive-locked .btn-drive-opt{background:var(--disabled-bg);border-color:var(--disabled-border);color:var(--disabled-text);cursor:not-allowed}
@@ -555,7 +547,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     .lightbox-ov{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:90;display:none;align-items:center;justify-content:center}
     .lightbox-ov.open{display:flex}
     /* A tela inteira é a caixa, e a foto cabe nela (contain): trocar de foto
-       — inclusive no modo apresentação, sem toque — não mexe em layout. Clique
+       não mexe em layout. Clique
        na faixa fora da foto fecha, como no fundo (lbForaDaFoto). */
     #lb-img{width:100%;height:100%;object-fit:contain;transition:transform .2s ease;touch-action:pan-y}
     .lb-close{position:absolute;top:1rem;right:1rem;background:rgba(0,0,0,.55);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:1.4rem;line-height:1;cursor:pointer;z-index:2}
@@ -592,15 +584,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   </div>
 
   <main>
-    <nav class="breadcrumbs" aria-label="Breadcrumb">
-      <span class="crumb"><a href="/">Início</a></span>
-      ${year ? `<span class="crumb"><span class="sep" aria-hidden="true">·</span><a href="/?year=${escape(year)}">${escape(year)}</a></span>` : ''}
-      <span class="crumb crumb-atual"><span class="sep" aria-hidden="true">·</span><span>${escape(event.title)}</span></span>
-    </nav>
     <div class="meta">
       ${event.date ? `<span class="date-chip">${escape(formatDateCurta(event.date))}</span>` : ''}
       ${(hasVideos || ytId || maisVideos.length) && !event.comingSoon ? `<span class="video-chip">${iconPlay()} Com vídeos</span>` : ''}
-      ${photos.length > 1 && !event.comingSoon ? `<button type="button" class="slideshow-btn" data-action="startSlideshow" hidden>${iconPlay()} Apresentação</button>` : ''}
     </div>
     <h1>${escape(event.title)}</h1>
     ${event.longDescription ? `<div class="desc">${escape(event.longDescription)}</div>` : ''}
@@ -617,7 +603,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
             Ver e baixar as fotos
           </a>
-          <p class="drive-dl-tip" style="text-align:left">Toque numa foto para ver em tela cheia. Para baixar várias, marque com o <strong>coração</strong> e use <strong>Favoritas → Baixar</strong> (ou <strong>Baixar tudo</strong>) e escolha <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
+          <ol class="passos-baixar" aria-label="Como baixar">
+            <li><span>Toque numa foto para ver grande.</span></li>
+            <li><span>Marque as que quiser com o <strong>coração</strong>.</span></li>
+            <li><span>Em <strong>Favoritas</strong>, toque em <strong>Baixar</strong>.</span></li>
+          </ol>
           <button type="button" class="btn-drive-alt" data-action="openModal">Prefere o Google Drive? Abrir no Drive</button>`
           : `<button class="btn-drive" data-action="openModal">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
@@ -894,7 +884,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
     </button>
     <div class="c-count" id="lb-count" style="display:none"></div>
-    <button class="lb-play" id="lb-play" data-action="toggleSlideshow" aria-label="Pausar apresentação">❚❚ Pausar</button>
   </div>
 
   <div class="cookie-notice" id="cookie-notice">
@@ -1046,12 +1035,10 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         case 'sendDriveCode': sendDriveCode(); break;
         case 'confirmDriveCode': confirmDriveCode(); break;
         case 'reload': location.reload(); break;
-        case 'cGoPrev': pauseSlideshow(); cGo(-1); break;
-        case 'cGoNext': pauseSlideshow(); cGo(1); break;
+        case 'cGoPrev': cGo(-1); break;
+        case 'cGoNext': cGo(1); break;
         case 'cGoto': cGoto(parseInt(el.dataset.i, 10)); break;
         case 'openLightbox': openLightbox(el.dataset.i !== undefined ? parseInt(el.dataset.i, 10) : cur); break;
-        case 'startSlideshow': startSlideshow(); break;
-        case 'toggleSlideshow': toggleSlideshow(); break;
         // onDriveLinkClick() already calls e.preventDefault() itself when the
         // link isn't ready yet (same as the old onclick="return …" pattern).
         case 'driveLink': onDriveLinkClick(e); break;
@@ -1818,7 +1805,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       cGoto(i);
     }
     function closeLightbox() {
-      stopSlideshow();
       document.getElementById('lightbox').classList.remove('open');
       document.body.style.overflow = '';
       lbResetZoom();
@@ -1869,65 +1855,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         if (Math.abs(dx) > 40 && PHOTOS.length > 1) cGo(dx > 0 ? 1 : -1);
       });
     })();
-    // ---- Modo apresentação (#212) ----
-    // É o lightbox, em tela cheia e girando sozinho. Só as fotos de capa: o
-    // site não conhece as fotos do Drive (a pasta inteira depende da Drive
-    // API, #217). O vídeo do YouTube fica fora da rotação, para não dar
-    // autoplay com som num telão. Qualquer navegação manual pausa; o botão
-    // retoma. Sair da tela cheia (o Esc do navegador) encerra tudo.
-    const SLIDESHOW_MS = 5000;
-    let slideTimer = null, slideshowOn = false;
-    function slideshowLabel() {
-      const b = document.getElementById('lb-play');
-      if (!b) return;
-      b.textContent = slideTimer ? '❚❚ Pausar' : '▶ Continuar';
-      b.setAttribute('aria-label', slideTimer ? 'Pausar apresentação' : 'Continuar apresentação');
-    }
-    function playSlideshow() {
-      if (!slideshowOn || slideTimer) return;
-      slideTimer = setInterval(function() { cGoto(cur + 1); }, SLIDESHOW_MS);
-      slideshowLabel();
-    }
-    function pauseSlideshow() {
-      if (!slideTimer) return;
-      clearInterval(slideTimer);
-      slideTimer = null;
-      slideshowLabel();
-    }
-    function toggleSlideshow() { if (slideTimer) pauseSlideshow(); else playSlideshow(); }
-    function startSlideshow() {
-      if (PHOTOS.length < 2) return;
-      openLightbox(cur);
-      slideshowOn = true;
-      document.getElementById('lightbox').classList.add('slideshow');
-      const lb = document.getElementById('lightbox');
-      // Tela cheia é pedida, não exigida: iPhone não tem a API para elementos,
-      // e o lightbox já cobre a janela inteira sem ela.
-      try {
-        if (lb.requestFullscreen) lb.requestFullscreen().catch(function() {});
-      } catch (_) {}
-      playSlideshow();
-    }
-    function stopSlideshow() {
-      pauseSlideshow();
-      if (!slideshowOn) return;
-      slideshowOn = false;
-      document.getElementById('lightbox').classList.remove('slideshow');
-      try {
-        if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function() {});
-      } catch (_) {}
-    }
-    document.addEventListener('fullscreenchange', function() {
-      if (!document.fullscreenElement && slideshowOn) closeLightbox();
-    });
-    (function() {
-      const b = document.querySelector('[data-action="startSlideshow"]');
-      if (b && PHOTOS.length > 1) b.removeAttribute('hidden');
-      // Pausa no toque (e no swipe, que também é toque).
-      const lbImg = document.getElementById('lb-img');
-      if (lbImg) lbImg.addEventListener('touchstart', pauseSlideshow, { passive: true });
-    })();
-
     const car = document.getElementById('carousel');
     if (car) {
       let tx = 0;
@@ -2104,10 +2031,9 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         return;
       }
-      if (open && open.id === 'lightbox' && slideshowOn && e.key === ' ') { e.preventDefault(); toggleSlideshow(); return; }
       if ((!open || open.id === 'lightbox') && PHOTOS.length > 1) {
-        if (e.key === 'ArrowLeft') { pauseSlideshow(); cGo(-1); }
-        else if (e.key === 'ArrowRight') { pauseSlideshow(); cGo(1); }
+        if (e.key === 'ArrowLeft') cGo(-1);
+        else if (e.key === 'ArrowRight') cGo(1);
       }
     });
 

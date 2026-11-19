@@ -18,7 +18,26 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.5.1] — ainda não publicada
+## [4.6.0] — ainda não publicada
+
+Menor: página do evento mais limpa e card em destaque só de outra cor
+(pedidos do dono, 19/11/2026).
+
+- **Modo apresentação removido** (#212): o botão "Apresentação" e o
+  pausar/continuar do lightbox saíram; ninguém usava. Setas, teclado e swipe
+  continuam. `tests/slideshow.test.js` agora prende a remoção.
+- **Sem a trilha "Início · ano · projeto"** no topo da página do evento. A
+  volta é o "Todos os projetos" sobre a foto. O `BreadcrumbList` do JSON-LD
+  (para buscadores) continua.
+- **Como baixar em três passos**, no lugar do parágrafo: tocar na foto,
+  marcar com o coração, Favoritas → Baixar. Redes sociais ou tamanho máximo e
+  "Salvar no Fotos" a folha de download já explica na hora.
+- **Card em destaque** na página inicial: sem a borda dourada, só o fundo de
+  outra cor (`--bg-destaque`). No tema claro, a mistura antiga dava o bege da
+  página e o card sumia; agora é um dourado claro, e o "Em destaque" escurece
+  para manter o contraste.
+
+## [4.5.1] — 2026-11-19
 
 Correção: a galeria às vezes dava **erro 500** (FNUSC, 19/11/2026).
 

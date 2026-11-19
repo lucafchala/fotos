@@ -245,6 +245,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
       --bg-page:#0a0a0a;--bg-card:#111;--bg-card-border:#1c1c1c;--bg-input:#111;--bg-wrap:#0a0a0a;
       --text:#f0ebe5;--text-2:#c8c0b8;--text-muted:#999999;--text-dim:#8c8c8c;--text-ph:#808080;
       --border-dim:#1a1a1a;--footer-link:#888;--accent:#c0a060;--accent-hover:#d4b070;
+      --bg-destaque:#27221a;--destaque-texto:#c0a060;
       --cta-bg:#c0a060;--cta-text:#0a0a0a;
       --shimmer-a:#181818;--shimmer-b:#222;--thumb-bg:#1a1816;--ease:cubic-bezier(.22,1,.36,1);
     }
@@ -253,6 +254,7 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
         --bg-page:#f0ece8;--bg-card:#fff;--bg-card-border:#ddd9d4;--bg-input:#fff;--bg-wrap:#f0ece8;
         --text:#1a1715;--text-2:#4a4744;--text-muted:#6b6460;--text-dim:#66605b;--text-ph:#6b6560;
         --border-dim:#ddd9d4;--footer-link:#6b6460;--accent:#8a6428;--accent-hover:#a67d38;
+        --bg-destaque:#f7ebd0;--destaque-texto:#6e4e1c;
         --cta-bg:#8a6428;--cta-text:#faf7f3;
         --shimmer-a:#ececec;--shimmer-b:#f5f5f5;--thumb-bg:#e8e2da;
       }
@@ -352,10 +354,14 @@ export function galleryHTML(events, analyticsToken, nonce = '', agenda = '') {
     .card-featured .thumb{aspect-ratio:3/2}
     /* Cartão fixado: sem selo sobre a foto. A marca vira texto discreto na linha
        de meta, abaixo da data. */
-    /* Card em destaque: borda e fundo levemente dourados, além do texto
-       "Em destaque" (pedido do dono na escolha do design, 18/11/2026). */
-    .card-destaque{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--bg-card))}
-    .card-destaque:hover{border-color:var(--accent-hover)}
+    /* Card em destaque: só o fundo de outra cor, sem borda (pedido do dono,
+       19/11/2026: "só o card de outra cor, sem esse outline"). Cor própria
+       (--bg-destaque) e não uma mistura com --bg-card: no tema claro a
+       mistura dava o bege da página e o card sumia. No claro, "Em destaque"
+       escurece (--destaque-texto) para manter 4,5:1 sobre o dourado. O texto
+       fica: cor sozinha não diz nada a quem não a vê. */
+    .card-destaque,.card-destaque:hover{border-color:transparent;background:var(--bg-destaque)}
+    .card-destaque .featured-badge{color:var(--destaque-texto)}
     .featured-badge{font-size:.8125rem;font-weight:500;letter-spacing:0;color:var(--accent)}
     /* Embaixo, à esquerda: em cima o "Em destaque" (esquerda) e, em card
        estreito, qualquer canto de cima colide com ele. */
