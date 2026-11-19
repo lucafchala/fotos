@@ -3270,8 +3270,41 @@ const SCRIPT = `
     return 'Os arquivos originais, sem alteração' + (total ? ' · ' + fmtBytes(total) + ' no total' : '');
   }
 
-  function abreFolha(lista) {
+  // Foto com uma versão só (sem a de redes, que é a única que pode faltar:
+  // o tamanho máximo é o original e sempre existe), fora do iPhone e sem
+  // Live Photo: não há o que escolher, então baixa direto e avisa embaixo
+  // (4.8.0, pedido do dono). No iPhone a folha fica: é nela que se escolhe
+  // entre "Salvar no Fotos" e "Baixar arquivo", e o iOS só abre a folha do
+  // sistema dentro de um toque.
+  function semEscolha(lista) {
+    if (lista.length !== 1 || IOS) return false;
+    const f = lista[0];
+    return !f.redes && !f.live;
+  }
+  let diretoEmCurso = false;
+  async function baixaDireto(f) {
+    // Toque duplo durante a sonda, ou fila de outro download andando: um por vez.
+    if (diretoEmCurso || filaViva) { avisa('Já há um download em andamento. Espere ele terminar.'); return; }
+    diretoEmCurso = true;
+    try {
+      avisa('Download iniciado');
+      const s = await sondaDownload(f, 'max');
+      if (s.ok) { linkDireto(urlBaixar(f, 'max', false), D.amigavel ? arquivoDe(f, 'max').nome : ''); return; }
+      if (s.erro) { avisa(s.erro); return; }
+      // Ocupado (429/503): a espera tem contagem e Cancelar, e isso mora na
+      // folha. Abre a folha e já começa a fila por ela.
+      abreFolha([f], true);
+      const b = folhaOps && folhaOps.querySelector('.g-op');
+      if (b) /** @type {HTMLElement} */ (b).click();
+    } finally {
+      diretoEmCurso = false;
+    }
+  }
+
+  /** @param {any[]} lista @param {boolean} [comFolha] abre a folha mesmo sem escolha */
+  function abreFolha(lista, comFolha) {
     if (!folha || !folhaT || !folhaOps || !folhaMsg || !lista.length) return;
+    if (!comFolha && semEscolha(lista)) { baixaDireto(lista[0]); return; }
     geracao++;
     if (folha.hidden) focoAntes = document.activeElement;
     const soVideos = lista.every(function (f) { return f.video; });
