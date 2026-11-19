@@ -1,0 +1,71 @@
+name: Prévia permanente
+
+# ---------------------------------------------------------------------------
+# preview.fotos.lucafchala.com e preview.entrenos2026.com
+# ---------------------------------------------------------------------------
+# RESERVA do Workers Builds: publica o Worker `fotos-previa-permanente`
+# (wrangler.previa-permanente.toml) com o código do branch escolhido. É outro
+# Worker, com KV, D1 e R2 próprios: nada aqui toca produção (o deploy do site
+# continua sendo o merge na `main`, deploy.yml).
+#
+# Segredos usados (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID  os mesmos do deploy.yml.
+#     O token precisa, além do que o deploy já usa, de: Workers KV Storage,
+#     D1 e R2 (editar) e, para os domínios, Zone → Workers Routes e DNS
+#     (editar) nas zonas lucafchala.com e entrenos2026.com.
+#   PREVIA_ADMIN_PASSWORD, PREVIA_RESEND_API_KEY, PREVIA_ADMIN_EMAIL,
+#   PREVIA_GOOGLE_DRIVE_API_KEY, PREVIA_SIGNING_SECRET   opcionais, as mesmas
+#     regras da prévia de PR (scripts/previa-publica.mjs). Sem
+#     PREVIA_SIGNING_SECRET, cada deploy gera um.
+
+# Só manual: quem publica a cada push é o Cloudflare Workers Builds (ver
+# wrangler.previa-permanente.toml). Isto é o caminho de reserva, para quando o
+# build da Cloudflare não estiver disponível.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: previa-permanente
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Testes
+        run: npm test
+
+      - name: Publicar a prévia permanente
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIA_ADMIN_PASSWORD: ${{ secrets.PREVIA_ADMIN_PASSWORD }}
+          PREVIA_RESEND_API_KEY: ${{ secrets.PREVIA_RESEND_API_KEY }}
+          PREVIA_ADMIN_EMAIL: ${{ secrets.PREVIA_ADMIN_EMAIL }}
+          PREVIA_GOOGLE_DRIVE_API_KEY: ${{ secrets.PREVIA_GOOGLE_DRIVE_API_KEY }}
+          PREVIA_SIGNING_SECRET: ${{ secrets.PREVIA_SIGNING_SECRET }}
+        run: node scripts/previa-permanente.mjs
+
+      - name: Resumo
+        if: success()
+        run: |
+          {
+            echo "### Prévia permanente publicada"
+            echo
+            echo "- https://preview.fotos.lucafchala.com"
+            echo "- https://preview.entrenos2026.com"
+          } >> "$GITHUB_STEP_SUMMARY"
