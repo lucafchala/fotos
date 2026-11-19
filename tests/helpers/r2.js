@@ -16,9 +16,13 @@ export function r2Falso(inicial = {}) {
     objetos,
     gravadas,
     apagadas,
-    async get(/** @type {string} */ k) {
+    // Com { range: { offset, length } }, só o trecho (como o R2 de verdade).
+    async get(/** @type {string} */ k, /** @type {any} */ opcoes = {}) {
       const o = objetos.get(k);
-      return o ? { body: new Response(o.corpo).body, size: o.corpo.length, httpMetadata: { contentType: o.tipo } } : null;
+      if (!o) return null;
+      const r = opcoes.range;
+      const corpo = r ? o.corpo.slice(r.offset, r.length === undefined ? undefined : r.offset + r.length) : o.corpo;
+      return { body: new Response(corpo).body, size: o.corpo.length, httpMetadata: { contentType: o.tipo } };
     },
     async head(/** @type {string} */ k) {
       const o = objetos.get(k);

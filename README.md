@@ -48,9 +48,25 @@ e sem etapa de build.
 - **Salvar por aparelho.** Android e computador baixam o arquivo direto. No
   iPhone e no iPad, "Salvar no Fotos" abre a folha do sistema com o arquivo
   exato, e "Baixar arquivo" salva no app Arquivos.
-- **Favoritas.** Dá para marcar fotos, filtrar por "Favoritas" e compartilhar a
-  seleção por um link `#sel=…` com até 300 fotos. A seleção compartilhada não é
-  gravada no servidor; álbuns de família e privados continuam pedindo o passe.
+- **Favoritas.** O coração é a única marca (desde a 4.4.0 a antiga "Seleção",
+  o ✓, faz parte das favoritas). Com o filtro "Favoritas" ligado, o topo
+  oferece "Baixar" e "Compartilhar"; este manda um link `#sel=…` com até 300
+  fotos. As favoritas ficam só no aparelho, e o link compartilhado não é
+  gravado no servidor; álbuns de família e privados continuam pedindo o passe.
+- **Compartilhar uma foto.** No visualizador, "Compartilhar" manda o link da
+  foto (`?foto=`), com a prévia no WhatsApp. Não manda o arquivo nem gasta o
+  limite de downloads.
+- **Vídeo tocado no site (4.4.0).** O vídeo toca no próprio visualizador,
+  como nos reels: começa mudo, o toque pausa e há barra de progresso. Vem pela
+  rota `/galeria/<slug>/video/<id>`, com `Range` e limite próprio por IP. Se
+  ela falhar, a página usa o player do Drive.
+- **Leve no celular e nítida na tela (4.4.0).** A grade é virtual: só os
+  blocos perto da tela têm miniaturas, e com 3.000 fotos ela abre e rola sem
+  travar. As miniaturas vêm na densidade cheia da tela. O "modo leve" (teto de
+  2×) só liga se o aparelho travar. Na rolagem rápida, as fotos da tela vêm
+  antes das que o dedo já passou. Com a rede muito ruim (2G, ou miniaturas
+  levando mais de 6 s), a tela vem primeiro numa versão baixa, que sobe para
+  a cheia quando a tela está pronta e o dedo para.
 - **Fotos novas desde a última visita.** Marca "nova", chip "Só as novas" e
   "N novas" no cartão do capítulo. A última visita fica só no `localStorage` do
   visitante; nada vai ao servidor e não há cookie novo.
@@ -244,7 +260,9 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers npm run verifica:navegador
 ```
 
 `verifica:galeria` cobre a galeria própria, a resolução por aparelho, o zoom,
-os downloads exatos e o "Pedir remoção". `verifica:celular` abre a página
+os downloads exatos, as favoritas, o vídeo no site, a grade virtual, o modo
+rede ruim e o "Pedir remoção". `SO_CENARIO=<trecho>` roda só os cenários com
+o trecho no nome. `verifica:celular` abre a página
 principal do álbum e a de um evento em 5 telas de celular e reprova vazamento
 lateral, alvo de toque menor que 44 px, campo que faz o iPhone dar zoom e texto
 menor que 11 px; também abre a página de um evento com o user agent do

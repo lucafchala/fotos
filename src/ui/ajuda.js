@@ -38,7 +38,7 @@ export const TEMAS_DE_AJUDA = [
     resumo: 'Uma foto, várias ou o evento inteiro, e o link de uma foto.',
     perguntas: [
       { p: 'Como baixo uma foto?', r: 'Abra a foto e toque em <b>Baixar</b>. Escolha <b>Para redes sociais</b> (mais leve, pronta para postar) ou <b>O arquivo original</b> (a qualidade total da câmera).' },
-      { p: 'E várias de uma vez?', r: 'Toque em <b>Selecionar</b>, escolha as fotos e toque em <b>Baixar</b>. Para o evento inteiro, use <b>Baixar tudo</b>.' },
+      { p: 'E várias de uma vez?', r: 'Toque no <b>coração</b> das fotos que quiser (dentro da foto aberta), depois em <b>Favoritas</b> no topo e em <b>Baixar</b>. Para o evento inteiro, use <b>Baixar tudo</b>.' },
       { p: 'Apareceu "Você está na fila"', r: 'Muita gente está baixando ao mesmo tempo. O site tenta de novo sozinho: deixe a página aberta.' },
       { p: 'No iPhone, onde a foto vai parar?', r: 'Se ela for para o app Arquivos, abra a foto lá e toque em Compartilhar → <b>Salvar imagem</b> para mandá-la para o app Fotos.' },
       { p: 'Como mando uma foto para alguém?', r: 'Abra a foto e toque em <b>Compartilhar</b>. O link abre direto naquela foto, e no WhatsApp a prévia já mostra a própria foto.' },
