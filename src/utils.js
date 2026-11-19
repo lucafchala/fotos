@@ -869,6 +869,19 @@ function umaLinha(v) {
 // está tentando registrar. O padrão antigo (`e && e.message ? e.message : e`)
 // também mentia: objeto sem `message` virava "[object Object]" no painel.
 /**
+ * A promessa guardada no isolate nasceu noutro pedido, que já acabou (4.6.0).
+ * O Workers não deixa um pedido esperar uma promessa criada por outro: com o
+ * flag `handle_cross_request_promise_resolution`, ela rejeita com esta
+ * mensagem. Foi o 500 da galeria do FNUSC em 19/11/2026 (`voos` em
+ * src/drive.js). Quem compartilha uma promessa entre pedidos pega este erro
+ * e faz o trabalho de novo, no próprio pedido.
+ * @param {unknown} e
+ */
+export function ehPromessaDeOutroPedido(e) {
+  return /created by a request that has since ended|cross_request_promise/i.test(errMessage(e));
+}
+
+/**
  * @param {unknown} err
  * @returns {string}
  */
