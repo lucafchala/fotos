@@ -8,6 +8,7 @@ import { loginHTML, dashboardHTML } from './ui/dashboard.js';
 import { supportHTML } from './ui/support.js';
 import { privacyHTML } from './ui/privacy.js';
 import { termsHTML } from './ui/terms.js';
+import { paginaDeErroHTML } from './ui/erro.js';
 import { aboutHTML } from './ui/about.js';
 import { gearHTML } from './ui/gear.js';
 import { legalHTML } from './ui/legal.js';
@@ -56,7 +57,7 @@ import {
 } from './utils.js';
 import { chavePixValida } from './pix.js';
 import { credAws, imagemValida, buscaPorRosto, atualizaPorFaces, sairDaBusca, ehAcelerado } from './rosto.js';
-import { termosDaBusca, itemDaBusca, buscaNasFotos, apagaBuscaDoProjeto, leEstadoDoIndexador, gravaEstadoDoIndexador, apagaEstadoDoIndexador } from './busca.js';
+import { termosDaBusca, itemDaBusca, buscaNasFotos, apagaBuscaDoProjeto, leEstadoDoIndexador, gravaEstadoDoIndexador, apagaEstadoDoIndexador, errosDoIndexadorLimpos, leErrosDoIndexador, gravaErrosDoIndexador } from './busca.js';
 import { emBreveHTML, ICONE_ALBUM_SVG } from './ui/em-breve.js';
 import { OG_ENTRENOS } from './content/og-entrenos.js';
 import { ICONE_ENTRENOS_PNG_B64 } from './content/icone-entrenos-png.js';
@@ -387,6 +388,7 @@ const worker = {
       if (path === '/api/previa' && method === 'POST') return await handlePrevia(request, env);
       if (path === '/api/busca/indexar' && method === 'POST') return await handleBuscaIndexar(request, env, ctx);
       if (path === '/api/busca/estado' && (method === 'GET' || method === 'POST')) return await handleBuscaEstado(request, env, url);
+      if (path === '/api/busca/erro' && method === 'POST') return await handleBuscaErro(request, env);
       if (path === '/api/galeria/apagadas' && method === 'GET') return await handleGaleriaApagadas(request, env, url);
       if (path === '/api/galeria/envio' && method === 'GET') return await handleGaleriaEnvio(request, env, url, ctx);
       // Envio de fotos pelo site (v4.0.0): o passe, o começo de um arquivo, as
@@ -4666,6 +4668,24 @@ export async function handleBuscaEstado(request, env, url) {
 }
 
 /**
+ * POST /api/busca/erro { slug?, erros: [{ tipo, mensagem, vezes }] } — o
+ * indexador guarda a mensagem INTEIRA dos erros, que o log público do Actions
+ * não pode levar (R1, #299). Só com o token dele; sem o token, o 404 de rota
+ * inexistente. Só o dono lê, no painel (GET /api/rosto/saidas).
+ * @param {Request} request
+ * @param {Env} env
+ */
+export async function handleBuscaErro(request, env) {
+  if (!indexadorAutorizado(request, env)) return notFound();
+  const body = await readJsonBody(request);
+  if (!body) return jsonErr('JSON inválido.', 400);
+  const slug = body.slug == null || body.slug === '' ? '' : body.slug;
+  if (slug && !validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
+  const gravados = await gravaErrosDoIndexador(env, errosDoIndexadorLimpos(body.erros, slug));
+  return jsonOk({ ok: true, gravados });
+}
+
+/**
  * GET /api/rosto/saidas?slug= — só o dono: quem saiu da busca pelo rosto deste
  * álbum (a data e quantos rostos a saída apagou; nenhuma foto, nenhum nome) e,
  * se a busca está desligada, quando o índice será apagado.
@@ -4678,7 +4698,10 @@ export async function handleRostoSaidas(request, env, url) {
   if (authErr) return authErr;
   const slug = url.searchParams.get('slug') || '';
   if (!validateSlug(slug)) return jsonErr('Projeto inválido.', 400);
-  const res = jsonOk({ saidas: await listaSaidas(env, slug), apagaEm: await indiceSeraApagadoEm(env, slug), tetoDoDia: ROSTO_SAIR_POR_DIA });
+  // Os erros do indexador deste álbum e os que pararam a execução antes de
+  // chegar a um álbum (slug vazio), com a mensagem inteira: só o dono vê (R1).
+  const errosIndexador = (await leErrosDoIndexador(env)).filter(e => e && (e.slug === slug || e.slug === ''));
+  const res = jsonOk({ saidas: await listaSaidas(env, slug), apagaEm: await indiceSeraApagadoEm(env, slug), tetoDoDia: ROSTO_SAIR_POR_DIA, errosIndexador });
   res.headers.set('Cache-Control', 'no-store');
   return res;
 }
@@ -6845,7 +6868,7 @@ async function handleRestoreBackup(request, env) {
  * @param {number} status
  */
 function errorPage(code, message, status) {
-  return html(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${code} · fotos</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:sans-serif;background:#0a0a0a;color:#555;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:2rem}h1{font-size:4rem;font-weight:700;color:#1a1a1a;margin-bottom:1rem}p{margin-bottom:1.5rem;font-size:.9rem}.links{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}a{color:#666;text-decoration:none}a:hover{color:#aaa}</style></head><body><div><h1>${code}</h1><p>${message}</p><div class="links"><a href="/">← Voltar para a galeria</a><a href="/suporte">Precisa de ajuda? Suporte</a></div></div></body></html>`, status);
+  return html(paginaDeErroHTML(code, message), status);
 }
 
 function notFound() {

@@ -47,9 +47,9 @@ describe('validateSlug', () => {
 
 describe('formatDateCurta', () => {
   it('dia, mês abreviado em minúsculas sem ponto, ano', () => {
-    expect(formatDateCurta('2026-10-27')).toBe('27 out 2026');
-    expect(formatDateCurta('2026-06-09')).toBe('9 jun 2026');
-    expect(formatDateCurta('2026-03-01')).toBe('1 mar 2026');
+    expect(formatDateCurta('2026-10-27')).toBe('27 Out 2026');
+    expect(formatDateCurta('2026-06-09')).toBe('9 Jun 2026');
+    expect(formatDateCurta('2026-03-01')).toBe('1 Mar 2026');
   });
   it('vazio vira vazio e data malformada volta como veio, sem NaN', () => {
     expect(formatDateCurta('')).toBe('');

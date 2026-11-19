@@ -130,6 +130,50 @@ export function tipoDoErro(e) {
   return o instanceof Error && /^[A-Za-z]{1,40}$/.test(o.name) ? o.name : 'erro';
 }
 
+/**
+ * A mensagem INTEIRA de um erro, com a causa (o "fetch failed" do Node esconde
+ * o ECONNRESET em `cause`). NUNCA vai ao log: só ao site, em particular
+ * (mandaErros), para o dono ler no painel (R1, #299).
+ * @param {unknown} e
+ * @returns {string}
+ */
+export function mensagemDoErro(e) {
+  const partes = [];
+  let o = /** @type {any} */ (e);
+  for (let i = 0; o != null && i < 3; i++) {
+    const m = o instanceof Error ? `${o.name}: ${o.message}` : (typeof o === 'object' && typeof o.message === 'string' ? o.message : String(o));
+    const extra = o && typeof o === 'object' && typeof o.code === 'string' ? ` (${o.code})` : '';
+    partes.push(m + extra);
+    o = o && typeof o === 'object' ? o.cause : null;
+  }
+  return partes.join(' ← ').slice(0, 600);
+}
+
+/**
+ * Manda ao site os erros com a mensagem inteira (POST /api/busca/erro, com o
+ * token). Falhar aqui não derruba nada: o log público já tem o tipo.
+ * @param {string} site
+ * @param {string} slug '' quando o erro não é de um álbum
+ * @param {{ tipo: string, mensagem: string, vezes: number }[]} erros
+ */
+export async function mandaErros(site, slug, erros) {
+  const token = process.env.ROSTO_INDEXADOR_TOKEN || '';
+  if (!token || !erros.length || process.env.ROSTO_SECO === '1') return;
+  try {
+    const r = await fetch(`${site}/api/busca/erro`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': UA, 'X-Rosto-Indexador': token },
+      body: JSON.stringify({ slug, erros: erros.slice(0, 10) }),
+    });
+    if (!r.ok) console.log(`Os erros não foram guardados no site: HTTP ${r.status}.`);
+  } catch (e) {
+    console.log(`Os erros não foram guardados no site: ${tipoDoErro(e)}.`);
+  }
+}
+
+/** O slug do álbum em processamento, para o erro que derruba a execução. */
+let slugAtual = '';
+
 /** @param {string} url @param {string} oQue rótulo para o erro (sem o endereço) */
 async function pagina(url, oQue) {
   // Com ROSTO_INDEXADOR_TOKEN, lê também o álbum ainda em "Em breve" (antes do
@@ -320,6 +364,26 @@ async function rostosIndexados(cred, colecao) {
 // O intervalo entre o começo de uma foto e o da seguinte: com PARALELAS fotos
 // ao mesmo tempo, cada operação fica em no máximo 4 por segundo (a cota padrão
 // é 5/s). ROSTO_PASSO_MS existe para os testes.
+/**
+ * Quais leituras da "busca nas fotos" o indexador faz em cada foto nova.
+ * Cada uma é uma chamada paga ao Rekognition (US$ 0,0013 em São Paulo, 11/2026):
+ * - `texto` (DetectText): palavras visíveis, como número de camisa e faixa;
+ * - `coisas` (DetectLabels): objetos e cenas, como "bolo" e "palco";
+ * - `moderacao` (DetectModerationLabels): esconde da galeria a foto imprópria
+ *   que a turma mandar.
+ * Vem da variável ROSTO_LEITURAS ("texto,moderacao"); vazia, as três. Nome
+ * desconhecido é ignorado, e uma lista só de nomes desconhecidos vale como
+ * vazia, para um erro de digitação não desligar a moderação sem ninguém ver.
+ * @param {string|undefined} valor
+ * @returns {Set<'texto'|'coisas'|'moderacao'>}
+ */
+export function leiturasDaBusca(valor) {
+  const todas = /** @type {const} */ (['texto', 'coisas', 'moderacao']);
+  const pedidas = String(valor || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const validas = todas.filter(l => pedidas.includes(l));
+  return new Set(validas.length ? validas : todas);
+}
+
 const PASSO_MS = Number.isFinite(Number(process.env.ROSTO_PASSO_MS)) && process.env.ROSTO_PASSO_MS !== undefined && process.env.ROSTO_PASSO_MS !== '' ? Number(process.env.ROSTO_PASSO_MS) : 250;
 const PARALELAS = 4;
 
@@ -341,8 +405,10 @@ export async function principal() {
   const limiteMs = (Number(process.env.ROSTO_MAX_MINUTOS) || 35) * 60000;
   const acabouOTempo = () => Date.now() - inicio > limiteMs;
   // Busca nas fotos (v3.7): texto, coisas e moderação, uma vez por foto.
-  // ROSTO_DESCREVER=0 desliga (só rostos).
-  const descrever = process.env.ROSTO_DESCREVER !== '0' && !!token;
+  // ROSTO_DESCREVER=0 desliga as três (só rostos); ROSTO_LEITURAS escolhe
+  // quais rodam (ver leiturasDaBusca).
+  const leituras = leiturasDaBusca(process.env.ROSTO_LEITURAS);
+  const descrever = process.env.ROSTO_DESCREVER !== '0' && !!token && leituras.size > 0;
   if (!slugs.length) { console.log('ROSTO_SLUGS vazio: nada a fazer.'); return; }
   if (!seco && (!cred.chave || !cred.segredo)) throw new ErroDoIndexador('faltam AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY');
   // No Actions o estado não pode ficar em arquivo (nem em cache): ver o topo.
@@ -351,6 +417,7 @@ export async function principal() {
   for (const [n, slug] of slugs.entries()) {
     // O rótulo do álbum no log: a posição na lista, nunca o slug.
     const album = `álbum ${n + 1} de ${slugs.length}`;
+    slugAtual = slug;
     const col = colecoes(slug).principal;
     const { todas: fotos, info, eventos, completo } = await fotosDoAlbum(site, slug);
     console.log(`${album}: ${fotos.size} fotos${eventos ? ` em ${eventos} eventos` : ''}.`);
@@ -434,6 +501,8 @@ export async function principal() {
     let rostos = 0;
     /** @type {Map<string, number>} as falhas, por tipo (nunca por foto) */
     const falhas = new Map();
+    /** @type {Map<string, string>} a 1ª mensagem inteira de cada tipo: só para o site, nunca para o log */
+    const primeiraMensagem = new Map();
     /** @type {any[]} */
     let lote = [];
     let marcadas = 0, escondidas = 0;
@@ -446,9 +515,9 @@ export async function principal() {
         const imagem = { Bytes: base64(bytes) };
         const [res, texto, rotulos, moderacao] = await Promise.all([
           !faltaRosto(k) ? null : aws(cred, 'IndexFaces', { CollectionId: col, Image: imagem, ExternalImageId: k, MaxFaces: 100, QualityFilter: QUALIDADE, DetectionAttributes: [] }),
-          descrever && !descritas.has(id) ? aws(cred, 'DetectText', { Image: imagem }) : null,
-          descrever && !descritas.has(id) ? aws(cred, 'DetectLabels', { Image: imagem, MaxLabels: 30, MinConfidence: 70 }) : null,
-          descrever && !descritas.has(id) ? aws(cred, 'DetectModerationLabels', { Image: imagem, MinConfidence: 70 }) : null,
+          descrever && leituras.has('texto') && !descritas.has(id) ? aws(cred, 'DetectText', { Image: imagem }) : null,
+          descrever && leituras.has('coisas') && !descritas.has(id) ? aws(cred, 'DetectLabels', { Image: imagem, MaxLabels: 30, MinConfidence: 70 }) : null,
+          descrever && leituras.has('moderacao') && !descritas.has(id) ? aws(cred, 'DetectModerationLabels', { Image: imagem, MinConfidence: 70 }) : null,
         ]);
         if (res) { rostos += (res.FaceRecords || []).length; vistas.add(k); }
         if (texto || rotulos || moderacao) {
@@ -461,6 +530,7 @@ export async function principal() {
         // Só o TIPO entra na contagem: a chave da foto e a mensagem não vão ao log.
         const tipo = tipoDoErro(e);
         falhas.set(tipo, (falhas.get(tipo) || 0) + 1);
+        if (!primeiraMensagem.has(tipo)) primeiraMensagem.set(tipo, mensagemDoErro(e));
       }
       if (lote.length >= BUSCA_LOTE_MAX) {
         const envio = lote; lote = [];
@@ -548,11 +618,18 @@ export async function principal() {
     const totalDeFalhas = [...falhas.values()].reduce((a, b) => a + b, 0);
     console.log(`${album}: ${feitas} fotos processadas, ${rostos} rostos indexados, ${totalDeFalhas} falhas.`);
     if (totalDeFalhas) console.log(`${album}: falhas por tipo: ${[...falhas].sort((a, b) => b[1] - a[1]).map(([t, q]) => `${t} × ${q}`).join(', ')}.`);
+    if (totalDeFalhas) await mandaErros(site, slug, [...falhas].sort((a, b) => b[1] - a[1]).map(([tipo, vezes]) => ({ tipo, vezes, mensagem: primeiraMensagem.get(tipo) || '' })));
     if (descrever) console.log(`${album}: busca nas fotos: ${marcadas} marcadas pela moderação, ${escondidas} escondidas (da turma).`);
   }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   // Só o tipo do erro: a mensagem crua pode levar o endereço de uma página.
-  principal().catch(e => { console.error(`O indexador parou: ${tipoDoErro(e)}.`); process.exit(1); });
+  // A mensagem inteira vai só ao site (mandaErros), para o painel.
+  principal().catch(async e => {
+    console.error(`O indexador parou: ${tipoDoErro(e)}.`);
+    const site = (process.env.ROSTO_SITE || 'https://fotos.lucafchala.com').replace(/\/+$/, '');
+    await mandaErros(site, slugAtual, [{ tipo: tipoDoErro(e), mensagem: mensagemDoErro(e), vezes: 1 }]);
+    process.exit(1);
+  });
 }

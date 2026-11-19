@@ -1647,8 +1647,8 @@ export function formatDatePT(dateStr) {
 }
 
 /**
- * Data curta para os rótulos visíveis: "27 out 2026" (dia, mês abreviado em
- * minúsculas e sem ponto, ano). Mesma regra de entrada de formatDatePT, que
+ * Data curta para os rótulos visíveis: "27 Out 2026" (dia, mês abreviado com
+ * a primeira letra maiúscula e sem ponto, ano; escolha do dono, 18/11/2026). Mesma regra de entrada de formatDatePT, que
  * continua sendo a que alimenta título de SEO e meta description: esta aqui
  * só desenha o que a pessoa lê no cartão, no projeto e na galeria.
  * @param {string|null|undefined} dateStr
@@ -1659,7 +1659,7 @@ export function formatDateCurta(dateStr) {
   const parts = dateStr.split('-');
   if (parts.length !== 3) return dateStr;
   const [year, month, day] = parts;
-  const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const m = parseInt(month, 10);
   const d = parseInt(day, 10);
   if (!Number.isInteger(m) || m < 1 || m > 12 || !Number.isInteger(d)) return dateStr;

@@ -644,7 +644,7 @@ fotos/
 │   └── workflows/
 │       ├── deploy.yml      ← CI: lint, tipos e testes → migrações D1 → versão sem tráfego → promoção → smoke em produção (reverte se reprovar) → tag
 │       ├── checks.yml      ← CI: lint, tipos, testes, cobertura, bundle dry-run, sintaxe do shell
-│       └── security.yml    ← CI: npm audit, dependency-review e invariantes de segurança
+│       └── security.yml    ← CI: npm audit (scripts/audita-dependencias.mjs), dependency-review e invariantes de segurança
 ├── fonts/                  ← Inter variável (WOFF2, subset latin) + OFL.txt — a licença exige que vá junto
 ├── vendor/
 │   └── photoswipe/         ← PhotoSwipe 5.4.4 (MIT) byte a byte do npm + LICENSE; versão e integridade no README.md de lá
@@ -1803,6 +1803,7 @@ IP vem de `request.headers.get('CF-Connecting-IP')` (header injetado pelo edge d
 - **PT-BR** em todo conteúdo, mensagens de erro e comentários.
 - **Sem dependências runtime**. As dev deps são ferramentas: `wrangler`, `vitest` (+ `@vitest/coverage-v8` e `@cloudflare/vitest-pool-workers`), `eslint` (+ `@eslint/js`), `typescript` e `@cloudflare/workers-types` (só para o `npm run typecheck`).
 - **`overrides` do `package.json`** (`sharp`, `undici`): fixam uma dependência *transitiva* quando a que a puxa a prende numa versão com aviso de segurança. `undici` (`^7.29.1`, 2026-10): `miniflare`, puxado pelo `wrangler` e pelo `@cloudflare/vitest-pool-workers`, fixa `undici@7.29.0` exato, e o `npm audit --audit-level=high` do `security.yml` reprovava os PRs. **Remova o override quando o `miniflare` publicado já trouxer `undici` ≥ 7.29.1** (confira com `npm ls undici` sem ele); override esquecido esconde aviso novo do mesmo pacote.
+- **Gate de dependências (`scripts/audita-dependencias.mjs`, job "Dependências"):** o que vai ao ar (`npm audit --omit=dev`) reprova a partir de moderado. Nas ferramentas de desenvolvimento, alto ou crítico reprova quando o advisory tem versão corrigida no GitHub (`first_patched_version`); sem conserto publicado, vira aviso no resumo do job e volta a reprovar sozinho quando o conserto sair. Não há lista de exceções. Consulta ao GitHub que falha conta como "tem conserto" (falha fechada). `tests/audita-dependencias.test.js` prende a regra e que `src/` não importa pacote do npm. Origem: GHSA-fc5q-39xc-vjpf (picomatch <= 4.0.7, puxada pelo vitest), sem versão corrigida, reprovava todo PR em nov/2026.
 - **Sem TypeScript**, sem build, sem JSX. Template strings + `escape()`.
 - **`escape()`** (em `utils.js`) é o único mecanismo de escape de **HTML**. Use sempre que interpolar valor de usuário. JSON inline em `<script>` usa `.replace(/</g, '\\u003c').replace(/>/g, '\\u003e')` em vez de `escape()`.
 - **`safeUrl()`** é coisa diferente e **não substitui** o `escape()`: é allowlist de *esquema* (deixa passar só `https:`, promove `http:`, mata `javascript:`/`data:`), e não escapa aspas — `https://x/" onload="…` passa inteiro por ela. Num atributo HTML use as duas, `escape(safeUrl(v))`; numa atribuição de propriedade no cliente (`el.href = v`) o `safeUrl()` basta, porque não há HTML sendo parseado. Nenhuma das duas sozinha cobre os dois ataques — ver `SECURITY.md`, seção *Invariants for contributors*.
@@ -1932,6 +1933,31 @@ dois pedirem o mesmo arquivo. As fontes do `<picture>` levam
 fica escondida e nada baixa. O script tira a fileira (`#g-pre`) ao montar a
 grade. `tests/galeria-script.test.js` e `tests/galeria-fileira.test.js`
 fixam os dois; os roteiros `verifica:*` servem o arquivo do script.
+
+**Faixa de chips no servidor (4.1.2).** A faixa `#g-chips` saía do servidor
+vazia e com `hidden`; `montaChips()` a abria quando o script rodava. Em rede
+lenta o script chega segundos depois da primeira pintura, e a faixa (55 px no
+celular) empurrava a grade inteira: CLS de 0,75 a 0,81 nas páginas de evento
+do álbum, que sempre têm mais de um fotógrafo. Agora `chipsProntosHTML`
+(`src/ui/galeria.js`) escreve no HTML os chips que o servidor conhece, seções
+(ou anos) e fotógrafos, com a mesma marcação que `montaChips()` produz sem
+filtro ligado. O script continua montando a faixa dele por cima, na mesma
+altura. A regra de quais chips existem mora, portanto, em dois lugares (o
+script não importa módulos): quem segura as duas cópias juntas é o roteiro
+`verifica:galeria`, bloco "Chips do servidor", que compara o HTML do servidor
+com o que o script monta em três páginas (seções, fotógrafos, anos) e a
+altura do cabeçalho antes e depois do script. Mudou um, mude o outro; o
+roteiro reprova se divergirem. "Favoritas", "Só as novas" e a seleção
+recebida por link dependem do aparelho e seguem só no script; numa galeria
+simples em que só elas existem, a faixa ainda abre depois.
+`tests/galeria-chips.test.js` fixa o que o servidor decide.
+A segunda parte do pulo era o fim da página: sem grade, a navegação de
+capítulos do fim (`.g-cap-fim`) e o rodapé ficavam na primeira tela e o script
+os empurrava para fora dela (mais 0,11 de CLS). Com `GRADE_RESERVA_MIN` (40)
+fotos ou mais, o `<main>` sai com `.g-reserva` (`min-height:100svh`), e o
+script tira a classe logo depois de `diagramaTudo()`. Abaixo de 40 a grade
+pode ser mais baixa que a tela e a reserva faria o rodapé subir; ali fica
+como era.
 
 **Teto de densidade (14/11/2026, 4.0.1).** Em produção, na ecp125, com Pixel 7
 emulado (DPR 2,625, 4G lento, CPU 4×), o LCP da galeria era 5,3 s: a grade
