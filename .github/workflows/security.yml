@@ -43,9 +43,9 @@ jobs:
     name: Dependências
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -53,13 +53,16 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # `npm audit` cobre o que o Dependabot já vigia, mas falha o build em vez
-      # de abrir um PR que pode ficar semanas sem revisão. O piso é `high`: o
-      # projeto só tem dependências de desenvolvimento (wrangler, eslint,
-      # vitest) e nenhuma delas roda em produção, então falhar em `moderate`
-      # geraria ruído que acabaria sendo silenciado — e um gate silenciado não
-      # protege ninguém.
-      - name: npm audit (high+)
-        run: npm audit --audit-level=high
+      # de abrir um PR que pode ficar semanas sem revisão. A regra (detalhes em
+      # scripts/audita-dependencias.mjs):
+      #   - o que vai ao ar (`--omit=dev`): moderado ou acima reprova;
+      #   - ferramenta de dev, alto ou crítico: reprova se o advisory já tem
+      #     versão corrigida; sem conserto publicado, vira aviso no resumo e
+      #     volta a reprovar sozinho quando o conserto sair. Sem lista de exceções.
+      - name: npm audit (produção moderado+, dev alto+ com conserto)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/audita-dependencias.mjs
 
   dependency-review:
     name: Revisão de dependências (PR)
@@ -69,10 +72,10 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Barra a ENTRADA de uma dependência vulnerável, em vez de descobri-la
       # depois de mergeada.
-      - uses: actions/dependency-review-action@v5
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
@@ -81,9 +84,9 @@ jobs:
     name: Invariantes de segurança
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
