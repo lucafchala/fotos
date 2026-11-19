@@ -15,7 +15,7 @@
 // Fotos" com o arquivo), seleção, link direto e teclado. O do servidor (portão, proxy, Drive API) está em
 // tests/galeria.test.js.
 
-/* global document, window, navigator, getComputedStyle, history, localStorage, performance, Event, HTMLAnchorElement */
+/* global MutationObserver, document, window, navigator, getComputedStyle, history, localStorage, sessionStorage, performance, Event, HTMLAnchorElement, MediaRecorder, Blob, btoa, setInterval, clearInterval, location */
 import { existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -157,6 +157,40 @@ const TURNSTILE_FALSO = `(function(){
 })();`;
 
 const browser = await chromium.launch({ executablePath: chromiumLocal() });
+
+// Um vídeo de verdade (WebM VP8, 2,5 s, retrato) gravado pelo próprio Chromium
+// a partir de um canvas: o player é testado tocando, pausando e avançando um
+// arquivo real, sem depender de ffmpeg nem de arquivo binário no repositório.
+const VIDEO_WEBM = await (async () => {
+  const p = await browser.newPage();
+  try {
+    const b64 = await p.evaluate(async () => {
+      const c = document.createElement('canvas');
+      c.width = 180; c.height = 320;
+      const g = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d'));
+      let i = 0;
+      const t = setInterval(() => { g.fillStyle = `hsl(${(i++ * 25) % 360},70%,50%)`; g.fillRect(0, 0, 180, 320); }, 50);
+      const rec = new MediaRecorder(c.captureStream(20), { mimeType: 'video/webm;codecs=vp8' });
+      /** @type {Blob[]} */
+      const partes = [];
+      rec.ondataavailable = e => partes.push(e.data);
+      rec.start();
+      await new Promise(r => setTimeout(r, 2500));
+      rec.stop();
+      await new Promise(r => { rec.onstop = r; });
+      clearInterval(t);
+      const bytes = new Uint8Array(await new Blob(partes).arrayBuffer());
+      let bin = '';
+      for (const x of bytes) bin += String.fromCharCode(x);
+      return btoa(bin);
+    });
+    return Buffer.from(b64, 'base64');
+  } catch {
+    return null;
+  } finally {
+    await p.close();
+  }
+})();
 // O vigia de CSP enxerga e a política barra o que não tem nonce (scripts/vigia-csp.mjs).
 await provaOVigia(browser, registra);
 
@@ -179,6 +213,24 @@ async function abre(o = {}) {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'platform', { value: 'MacIntel' });
       Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 });
+    });
+  }
+  if (o.conexao) {
+    // A rede que o Chrome anuncia (navigator.connection.effectiveType).
+    await page.addInitScript(tipo => {
+      Object.defineProperty(navigator, 'connection', { value: { effectiveType: tipo, addEventListener() {} } });
+    }, o.conexao);
+  }
+  if (o.vigiaRede) {
+    // O histórico do modo rede ruim (#g-main[data-rede]).
+    await page.addInitScript(() => {
+      /** @type {any} */ (window).__rede = [];
+      document.addEventListener('DOMContentLoaded', () => {
+        const m = document.getElementById('g-main');
+        if (!m) return;
+        /** @type {any} */ (window).__rede.push(m.dataset.rede || '');
+        new MutationObserver(() => /** @type {any} */ (window).__rede.push(m.dataset.rede || '')).observe(m, { attributes: true, attributeFilter: ['data-rede'] });
+      });
     });
   }
   if (o.semStorage) {
@@ -205,6 +257,7 @@ async function abre(o = {}) {
           // `recusaShare`: o sistema recusa entregar os arquivos (erro que não é
           // cancelamento nem falta de toque) — o caso do fallback para "Arquivos".
           if (recusaShare) { const e = new Error('recusou'); e.name = 'DataError'; throw e; }
+          if (d.url) /** @type {any} */ (window).__compartilhados.push({ url: d.url, files: (d.files || []).length });
           for (const f of (d.files || [])) {
             const b = new Uint8Array(await f.arrayBuffer());
             let bin = '';
@@ -228,6 +281,8 @@ async function abre(o = {}) {
     turnstile: 0,
     // Pedidos ao player do Drive (item 1f): só depois do toque no play.
     drive: /** @type {string[]} */ ([]),
+    // Pedidos à rota de vídeo do próprio site (v4.4.0), com o Range de cada um.
+    video: /** @type {{ id: string, range: string }[]} */ ([]),
     remocao: /** @type {any[]} */ ([]),
   };
   /** @type {Set<string>} */
@@ -245,6 +300,9 @@ async function abre(o = {}) {
       estado.lh3.push({ id: m[1], w: Number(m[2]), webp: !!m[3], site: !!fotoSite, k: u.searchParams.get('k') || '' });
       // `falhaFotos: N`: os N primeiros pedidos de foto falham (a rajada do lançamento).
       if (o.falhaFotos && estado.lh3.length <= o.falhaFotos) return route.fulfill({ status: 502, body: '' });
+      // `atrasoFoto(n)`: espera (ms) antes de responder o n-ésimo pedido de foto (rede ruim).
+      const atraso = o.atrasoFoto ? o.atrasoFoto(estado.lh3.length) : 0;
+      if (atraso) await new Promise(r => setTimeout(r, atraso));
       const img = await imagem(m[1], Number(m[2]), !!m[3]);
       return route.fulfill({ contentType: img.tipo, body: img.corpo });
     }
@@ -276,6 +334,21 @@ async function abre(o = {}) {
     if (u.pathname === GALERIA_JS.path) return route.fulfill({ status: 200, contentType: 'text/javascript', body: GALERIA_JS.texto });
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
+    // O vídeo tocado no site (v4.4.0): um WebM de verdade, com Range como o
+    // servidor. `videoFalha`: a rota responde 502 (o player cai no Drive).
+    const vm = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/video\/([A-Za-z0-9_-]+)$/);
+    if (vm) {
+      const range = (await r.allHeaders()).range || '';
+      estado.video.push({ id: vm[1], range });
+      if (o.videoFalha || !VIDEO_WEBM) return route.fulfill({ status: 502, body: '' });
+      const total = VIDEO_WEBM.length;
+      const m = /^bytes=(\d+)-(\d*)$/.exec(range);
+      if (!m) return route.fulfill({ status: 200, headers: { 'Content-Type': 'video/webm', 'Accept-Ranges': 'bytes', 'Content-Length': String(total) }, body: VIDEO_WEBM });
+      const a = Number(m[1]);
+      const z = m[2] ? Math.min(Number(m[2]), total - 1) : total - 1;
+      if (a >= total) return route.fulfill({ status: 416, headers: { 'Content-Range': `bytes */${total}` }, body: '' });
+      return route.fulfill({ status: 206, headers: { 'Content-Type': 'video/webm', 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${a}-${z}/${total}`, 'Content-Length': String(z - a + 1) }, body: VIDEO_WEBM.subarray(a, z + 1) });
+    }
     const b = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/baixar\/([A-Za-z0-9_-]+)$/);
     if (b) {
       const variante = u.searchParams.get('v') === 'redes' ? 'redes' : 'max';
@@ -307,8 +380,26 @@ async function abre(o = {}) {
     }
     return route.fulfill({ status: 204, body: '' });
   });
+  if (o.cpu) {
+    // Celular lento: o Chromium roda o JS `o.cpu` vezes mais devagar.
+    const cdp = await ctx.newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: o.cpu });
+    if (process.env.MEDE_PERFIL) {
+      await cdp.send('Performance.enable');
+      await cdp.send('Profiler.enable');
+      await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+      await cdp.send('Profiler.start');
+      /** @type {any} */ (page).__cdp = cdp;
+    }
+  }
+  if (o.medeTarefas) {
+    await page.addInitScript(() => {
+      /** @type {any} */ (window).__longas = [];
+      new window.PerformanceObserver(l => { for (const e of l.getEntries()) /** @type {any} */ (window).__longas.push([Math.round(e.startTime), Math.round(e.duration)]); }).observe({ type: 'longtask', buffered: true });
+    });
+  }
   await page.goto(o.url || 'https://fotos.test/galeria/formatura');
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(o.esperaAbrir ?? 900);
   return { ctx, page, estado };
 }
 
@@ -348,7 +439,10 @@ async function esperaLargura(page, minimo, ms = 4000) {
  * @param {string} nome
  * @param {() => Promise<void>} fn
  */
+// SO_CENARIO=<trecho do nome>: roda só os cenários cujo nome tem o trecho.
+const SO_CENARIO = process.env.SO_CENARIO || '';
 async function cenario(nome, fn) {
+  if (SO_CENARIO && !nome.includes(SO_CENARIO)) return;
   try {
     await fn();
   } catch (e) {
@@ -386,7 +480,8 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
         return { css: t.getBoundingClientRect().width, w: m ? Number(m[1]) : 0, ok: img.classList.contains('ok') };
       });
       const nan = [...document.querySelectorAll('.g-t')].some(t => !/^\d+px$/.test(/** @type {HTMLElement} */ (t).style.width));
-      const alts = [...document.querySelectorAll('.g-t img')].map(im => /** @type {HTMLImageElement} */ (im).alt);
+      // A grade é virtual (v4.4.0): só os blocos perto da tela têm miniaturas.
+      const alts = [...document.querySelectorAll('.g-t')].map(t => [Number(/** @type {HTMLElement} */ (t).dataset.i), /** @type {HTMLImageElement} */ (t.querySelector('img')).alt]);
       // Desempenho da carga: o que é "eager"/prioritário e onde está.
       const imgs = /** @type {HTMLImageElement[]} */ ([...document.querySelectorAll('.g-t img')]);
       const topoDe = (/** @type {HTMLElement} */ el) => el.getBoundingClientRect().top + window.scrollY;
@@ -399,7 +494,7 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
         coracaoCss: getComputedStyle(/** @type {Element} */ (document.querySelector('.g-fav')), '::before').backgroundImage.includes('svg'),
         svgPorFoto: document.querySelectorAll('.g-t svg').length,
       };
-      return { util, desvio, tiles, nan, alts, carga, total: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth };
+      return { util, desvio, tiles, nan, alts, carga, total: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0), naTela: document.querySelectorAll('.g-t').length, rolagemLateral: document.scrollingElement.scrollWidth > window.innerWidth, leve: document.getElementById('g-main')?.dataset.leve || '' };
   });
   // SEO e leitor de tela: o alt diz o evento e a posição, não o nome do arquivo.
   const altEsperado = (/** @type {number} */ i) => `Formatura 2026 — foto ${i + 1} de ${TODAS.length}`;
@@ -412,20 +507,21 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
   // pintura); depois da carga o aquecimento ocioso já pode tê-lo trazido.
   registra(!/<link rel="stylesheet"[^>]*photoswipe/.test(PAGINA), `${nome}: o CSS do visualizador não bloqueia a primeira pintura (fora do HTML servido)`, '');
   registra(g.carga.coracaoCss && g.carga.svgPorFoto === 0, `${nome}: coração da miniatura em CSS, sem <svg> por foto`, g.carga);
-  // Teto de densidade (MINIATURA_DPR_TETO): a grade escolhe como se o DPR
-  // fosse o degrau × fator — 2 num celular 2,625× ou 3×; abaixo disso, o real.
-  const dprEf = dpr * fatorMiniatura(dpr);
+  // v4.4.0: densidade cheia (o DPR real); o teto (MINIATURA_DPR_TETO) só
+  // entra no modo leve, quando o aparelho trava (main[data-leve]).
+  const dprEf = g.leve ? dpr * fatorMiniatura(dpr) : dpr;
   const exato = g.tiles.filter(t => t.ok).every(t => t.w === degrau(GALERIA_LARGURAS_GRADE, t.css * dprEf - 0.01));
   registra(exato, `${nome}: miniatura no menor degrau que cobre (sem baixar a mais; DPR efetivo ${dprEf.toFixed(2)})`, g.tiles.slice(0, 4));
-  registra(dpr <= MINIATURA_DPR_TETO ? dprEf === dpr : dprEf <= MINIATURA_DPR_TETO + 0.25, `${nome}: teto de densidade das miniaturas (DPR ${dpr} → ${dprEf.toFixed(2)})`, dprEf);
+  registra(!g.leve && dprEf === dpr, `${nome}: miniaturas na densidade cheia da tela (DPR ${dpr}), sem modo leve`, { dprEf, leve: g.leve, teto: MINIATURA_DPR_TETO });
   // A pré-carga do LCP (celular até 430 px) pede o MESMO arquivo que a <img>:
   // uma requisição só da primeira foto, sem desperdício.
   if (viewport.width <= 430) {
     const daPrimeira = estado.lh3.filter(x => x.id === TODAS[0][0]);
     registra(daPrimeira.length === 1, `${nome}: pré-carga da primeira foto = a miniatura que a página usa (1 pedido só)`, daPrimeira);
   }
-  registra(g.alts.length === TODAS.length && g.alts.every((a, i) => a === altEsperado(i)), `${nome}: alt das fotos é "<evento> — foto i de n"`, g.alts.slice(0, 2));
+  registra(g.alts.length > 0 && g.alts.every(([i, a]) => a === altEsperado(i)), `${nome}: alt das fotos é "<evento> — foto i de n"`, g.alts.slice(0, 2));
   registra(g.total === TODAS.length, `${nome}: todas as ${TODAS.length} fotos na grade`, g.total);
+  registra(g.naTela > 0 && g.naTela < TODAS.length, `${nome}: grade virtual (só os blocos perto da tela têm miniaturas)`, g.naTela);
   registra(g.desvio >= 0 && g.desvio <= 2, `${nome}: linhas justificadas (cada linha fecha na largura, ±2 px)`, { desvio: g.desvio });
   registra(!g.nan && !g.rolagemLateral, `${nome}: nenhuma largura inválida, sem rolagem lateral`, { nan: g.nan, lateral: g.rolagemLateral });
   const fisicoOk = g.tiles.filter(t => t.ok).every(t => t.w >= Math.min(degrau(GALERIA_LARGURAS_GRADE, t.css * dprEf - 0.01), GALERIA_LARGURAS_GRADE.at(-1)));
@@ -459,6 +555,70 @@ await cenario('Miniatura que falha tenta de novo', async () => {
   // R2 (AQUECE_LARGURAS): aquecer a largura errada é o mesmo que não aquecer.
   const pedidasNaGrade = [...new Set(estado.lh3.map(x => x.w))].sort((x, y) => x - y);
   registra(pedidasNaGrade.every(w => AQUECE_LARGURAS.includes(w)), 'iPhone: toda largura pedida na grade está entre as aquecidas no R2', { pedidas: pedidasNaGrade, aquecidas: AQUECE_LARGURAS });
+  await ctx.close();
+});
+
+// ---- 1c. Rede muito ruim (v4.4.0) --------------------------------------------
+// A tela aparece primeiro, com 1 pixel físico por pixel da tela; depois, com
+// a tela pronta e o dedo parado, as da tela sobem para a densidade cheia.
+/** As miniaturas da grade na tela: id, largura pedida agora e a do quadradinho. */
+const miniaturasNaTela = (/** @type {import('playwright-core').Page} */ page) => page.evaluate(() => [...document.querySelectorAll('.g-grade .g-t img')].map(i => {
+  const img = /** @type {HTMLImageElement} */ (i);
+  const r = img.getBoundingClientRect();
+  const m = img.currentSrc.match(/\/f\/([A-Za-z0-9_-]+)\/(\d+)/);
+  return { id: m ? m[1] : '', w: m ? Number(m[2]) : 0, css: r.width, naTela: r.bottom > 0 && r.top < window.innerHeight && r.width > 0 };
+}).filter(x => x.naTela && x.id));
+await cenario('Rede muito ruim: 2G', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, conexao: '2g', atrasoFoto: () => 300 });
+  await page.waitForFunction(() => [...document.querySelectorAll('.g-grade .g-t img')].filter(i => /** @type {HTMLImageElement} */ (i).getBoundingClientRect().top < window.innerHeight).every(i => i.classList.contains('ok')), null, { timeout: 15000 }).catch(() => {});
+  const modo = await page.evaluate(() => document.getElementById('g-main')?.dataset.rede || '');
+  registra(modo === 'conexao', '2G: a página entra no modo rede ruim', { modo });
+  // A primeira largura pedida por foto (fora a pré-carga da primeira) é a de 1 pixel por pixel da tela.
+  const tela = await miniaturasNaTela(page);
+  const primeiro = new Map();
+  for (const x of estado.lh3) if (!primeiro.has(x.id)) primeiro.set(x.id, x.w);
+  const baixas = tela.slice(1).filter(x => primeiro.get(x.id) === degrau(GALERIA_LARGURAS_GRADE, x.css));
+  registra(tela.length >= 3 && baixas.length === tela.length - 1, '2G: a tela pede primeiro a versão baixa (1 pixel por pixel da tela)', { tela: tela.length, baixas: baixas.length, exemplo: tela.slice(1, 3).map(x => ({ css: Math.round(x.css), pedida: primeiro.get(x.id) })) });
+  // Com a tela pronta e o dedo parado, sobem para a densidade cheia (2 por vez).
+  const cheia = (/** @type {{ w: number, css: number }} */ x) => x.w === degrau(GALERIA_LARGURAS_GRADE, x.css * 3);
+  await page.waitForFunction(() => [...document.querySelectorAll('.g-grade .g-t img')].length > 0, null, { timeout: 2000 });
+  const fim = Date.now() + 12000;
+  let depois = await miniaturasNaTela(page);
+  while (Date.now() < fim && !depois.every(cheia)) { await espera(page, 300); depois = await miniaturasNaTela(page); }
+  registra(depois.length >= 3 && depois.every(cheia), '2G: depois de carregar, as da tela sobem para a densidade cheia', { subiram: depois.filter(cheia).length, de: depois.length });
+  // Visualizador: abre baixo (1 pixel por pixel da tela) e sobe quando assenta.
+  const antesDoToque = estado.lh3.length;
+  const alvo = tela[1];
+  await page.locator('.g-grade .g-t').nth(1).tap();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  const escada = [...GALERIA_LARGURAS.filter(x => x < 6000), 6000];
+  const subiu = await esperaLargura(page, 1600, 8000);
+  const doSlide = estado.lh3.slice(antesDoToque).filter(x => x.id === alvo.id).map(x => x.w);
+  registra(doSlide[0] === degrau(escada, 390), '2G: o visualizador abre com a versão baixa', { pedidas: doSlide });
+  registra(subiu.w === degrau(escada, subiu.exibida * 3), '2G: e sobe para a resolução cheia com a foto assentada', { pedida: subiu.w, exibida: Math.round(subiu.exibida), pedidas: doSlide });
+  const vizinhas = new Set(estado.lh3.slice(antesDoToque).filter(x => x.id !== alvo.id && GALERIA_LARGURAS.includes(x.w) && x.w > 480).map(x => x.id));
+  registra(vizinhas.size === 0, '2G: as vizinhas não sobem (só a foto aberta)', [...vizinhas]);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, '2G: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+await cenario('Rede muito ruim: medida', async () => {
+  // As 10 primeiras fotos levam 6,5 s; depois a rede melhora.
+  const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, vigiaRede: true, atrasoFoto: n => n <= 10 ? 6500 : 60 });
+  await page.waitForFunction(() => /** @type {any} */ (window).__rede.includes('medida'), null, { timeout: 20000 }).catch(() => {});
+  const entrou = await page.evaluate(() => /** @type {any} */ (window).__rede.slice());
+  registra(entrou.includes('medida'), 'Medida: miniaturas da tela levando mais de 6 s ligam o modo rede ruim', entrou);
+  // A próxima tela pede baixo; as subidas rápidas tiram a página do modo.
+  await page.evaluate(() => window.scrollBy(0, window.innerHeight * 1.5));
+  await page.waitForFunction(() => /** @type {any} */ (window).__rede.slice(-1)[0] === '', null, { timeout: 15000 }).catch(() => {});
+  const hist = await page.evaluate(() => /** @type {any} */ (window).__rede.slice());
+  const tela = await miniaturasNaTela(page);
+  // A tela seguinte pode ter sido pedida (baixa) como margem, antes da rolagem.
+  const primeiro = new Map();
+  for (const x of estado.lh3) if (!primeiro.has(x.id)) primeiro.set(x.id, x.w);
+  const baixa = tela.filter(x => primeiro.get(x.id) === degrau(GALERIA_LARGURAS_GRADE, x.css) && x.w > primeiro.get(x.id));
+  registra(baixa.length > 0, 'Medida: a tela seguinte veio baixa e subiu depois', { baixasQueSubiram: baixa.length, tela: tela.length });
+  registra(hist[hist.length - 1] === '', 'Medida: com a rede de volta (subidas rápidas), a página sai do modo', hist);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Medida: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
@@ -561,6 +721,10 @@ await cenario('Visualizador no iPhone', async () => {
   await page.touchscreen.tap(cx, cy);
   const zoom = await esperaLargura(page, ini.w + 1, 6000);
   registra(zoom.w > ini.w, 'iPhone: duplo toque amplia e pede resolução maior', { antes: ini.w, depois: zoom.w });
+  // v4.4.0: e a maior que a tela ampliada pede (pixels FÍSICOS), sem teto.
+  await espera(page, 900);
+  const ampliada = await esperaLargura(page, degrau(escada, (await larguraAtualDoVisualizador(page)).exibida * 3), 6000);
+  registra(ampliada.w === degrau(escada, ampliada.exibida * 3), 'iPhone: no zoom, a resolução máxima que a tela ampliada pede', { pedida: ampliada.w, exibida: Math.round(ampliada.exibida) });
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   if (PRINTS) await page.screenshot({ path: join(PRINTS, 'visualizador-iphone.png') });
   await ctx.close();
@@ -575,7 +739,7 @@ await cenario('Link direto', async () => {
   registra(legenda === 'Foto de Luca F. Chalafesta-5 · Festa', 'Link direto #foto= abre na foto certa, com a seção e o crédito na legenda', legenda);
   await page.evaluate(() => history.back());
   await espera(page, 700);
-  registra(!(await page.locator('.pswp--open').count()) && page.url() === 'https://fotos.test/galeria/formatura' && (await page.locator('.g-t').count()) === TODAS.length,
+  registra(!(await page.locator('.pswp--open').count()) && page.url() === 'https://fotos.test/galeria/formatura' && (await page.evaluate(() => [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0))) === TODAS.length,
     'Link direto: voltar fecha a foto e fica na galeria (não sai do site)', page.url());
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Link direto: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
@@ -601,6 +765,13 @@ await cenario('Link direto', async () => {
 // da rota), então aqui se confere a URL pedida — foto e versão — e que a página
 // NÃO deu nome ao arquivo nem chamou o compartilhamento; o nome e os bytes
 // (Content-Disposition e passagem direta do Drive) estão em tests/galeria.test.js.
+// A folha entra com transição (opacidade e posição, 0,2 s): o axe medido no
+// meio dela lê cores misturadas com o fundo (contraste 4,36 no CI, run
+// 44073828414). Espera as animações da folha acabarem antes de medir.
+const folhaAssentada = (/** @type {import('playwright-core').Page} */ page) => page.waitForFunction(() => {
+  const f = document.getElementById('g-folha');
+  return !!f && f.getAnimations({ subtree: true }).every(a => a.playState !== 'running');
+}, null, { timeout: 3000 });
 const urlDe = (/** @type {import('playwright-core').Download} */ d) => { const u = new URL(d.url()); return u.pathname + u.search; };
 for (const [nome, opcoes] of /** @type {const} */ ([
   ['Computador', {}],
@@ -615,6 +786,7 @@ for (const [nome, opcoes] of /** @type {const} */ ([
     await espera(page, 800);
     await clica(page.locator('.pswp__button--g-baixar'));
     await page.waitForSelector('#g-folha:not([hidden])');
+    await folhaAssentada(page);
     await verificaAxe(page, registra, `${nome}: folha de download aberta sobre o visualizador`);
     const opsSem = await page.locator('.g-op strong').allTextContents();
     registra(opsSem.join('|') === 'Tamanho máximo', `${nome}: foto SEM versão do Instagram não oferece "para redes"`, opsSem);
@@ -666,6 +838,7 @@ await cenario('iPhone', async () => {
   await espera(page, 900);
   await page.locator('.pswp__button--g-baixar').tap();
   await page.waitForSelector('#g-folha:not([hidden])');
+  await folhaAssentada(page);
   await verificaAxe(page, registra, 'iPhone: folha de download aberta sobre o visualizador');
   const blocos = await page.locator('.g-ver-t strong').allTextContents();
   registra(blocos.join('|') === 'Para redes sociais|Tamanho máximo', 'iPhone: a folha tem um bloco para "para redes" e outro para "tamanho máximo"', blocos);
@@ -747,17 +920,35 @@ await cenario('iPhone sem compartilhar arquivos', async () => {
   await ctx.close();
 });
 
-// Compartilhar uma foto, no iPhone: o arquivo é buscado só para ler (c=0), sem
-// somar em "Fotos baixadas".
-await cenario('Compartilhar não conta como download', async () => {
+// Compartilhar uma foto (v4.4.0): manda o LINK da foto (?foto=), nunca o
+// arquivo — nenhum pedido a /baixar/, nada conta como download. Sem o menu do
+// sistema, o link vai para a área de transferência.
+await cenario('Compartilhar manda o link, não a foto', async () => {
   const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE });
   await page.locator('.g-t').first().tap();
   await page.waitForSelector('.pswp--open');
   await espera(page, 900);
+  const endereco = await page.evaluate(() => location.href);
   await page.locator('.pswp__button--g-compartilhar').tap();
   await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 1, null, { timeout: 8000 });
-  registra(estado.pedidos.join(',') === 'RAIZFOTO_000000?v=redes&c=0', 'Compartilhar: lê o arquivo do Instagram com c=0 (o servidor não conta como download)', estado.pedidos);
+  const c = await page.evaluate(() => /** @type {any} */ (window).__compartilhados);
+  registra(c.length === 1 && c[0].files === 0 && c[0].url === endereco && /[?]foto=/.test(c[0].url), 'Compartilhar: o menu do sistema recebe só o link da foto aberta (?foto=), sem arquivo', { c, endereco });
+  registra(estado.pedidos.length === 0 && estado.downloads.length === 0, 'Compartilhar: nenhum pedido de download sai', estado.pedidos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Compartilhar: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+await cenario('Compartilhar sem menu do sistema copia o link', async () => {
+  const { ctx, page, estado } = await abre({ viewport: { width: 1440, height: 900 } });
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://fotos.test' });
+  await page.evaluate(() => { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true }); });
+  await page.locator('.g-t').first().click();
+  await page.waitForSelector('.pswp--open');
+  await espera(page, 900);
+  await page.locator('.pswp__button--g-compartilhar').click();
+  await page.waitForFunction(() => /Link copiado/.test(document.getElementById('g-aviso-flut')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+  const r = await page.evaluate(async () => ({ aviso: document.getElementById('g-aviso-flut')?.textContent || '', copiado: await navigator.clipboard.readText(), aqui: location.href }));
+  registra(/Link copiado/.test(r.aviso) && r.copiado === r.aqui && /[?]foto=/.test(r.copiado), 'Compartilhar no computador: copia o link da foto e avisa', r);
+  registra(estado.pedidos.length === 0, 'Compartilhar no computador: nenhum download', estado.pedidos);
   await ctx.close();
 });
 
@@ -786,7 +977,7 @@ await cenario('iPhone recusa o Salvar no Fotos', async () => {
   await ctx.close();
 });
 
-// 429 do limite por IP: Compartilhar mostra a espera e não repete a cada toque;
+// 429 do limite por IP: Compartilhar (só o link) não é afetado;
 // "Salvar no Fotos" entra na fila (contagem no botão, Cancelar) e só uma
 // tentativa por vez sai desta aba.
 await cenario('Limite por IP no download (429)', async () => {
@@ -794,11 +985,10 @@ await cenario('Limite por IP no download (429)', async () => {
   await page.locator('.g-t').first().tap();
   await page.waitForSelector('.pswp--open');
   await espera(page, 900);
+  // Compartilhar manda só o link: funciona mesmo com o limite esgotado.
   await page.locator('.pswp__button--g-compartilhar').tap();
-  await page.waitForFunction(() => /Muita gente baixando/.test(document.getElementById('g-aviso-flut')?.textContent || ''), null, { timeout: 8000 });
-  const aviso = (await page.locator('#g-aviso-flut').textContent()) || '';
-  registra(/Muita gente baixando agora\. Tente de novo em \d+ s\./.test(aviso), 'Limite: o Compartilhar mostra a espera que o servidor mandou', aviso);
-  await page.locator('.pswp__button--g-compartilhar').tap();
+  await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 1, null, { timeout: 8000 });
+  registra(estado.pedidos.length === 0, 'Limite: o Compartilhar (só o link) funciona com o limite esgotado, sem pedir nada', estado.pedidos);
   await page.locator('.pswp__button--g-baixar').tap();
   await page.waitForSelector('#g-folha:not([hidden])');
   const salvar = page.locator('.g-ver-a').first().locator('.g-btn').first();
@@ -814,12 +1004,12 @@ await cenario('Limite por IP no download (429)', async () => {
   await page.locator('.g-ver-a').first().locator('.g-btn').nth(1).tap();
   await espera(page, 1500);
   registra(/Já há downloads na fila/.test((await page.locator('#g-folha-msg').textContent()) || ''), 'Limite: com a fila andando, "Baixar arquivo" não abre outra tentativa', await page.locator('#g-folha-msg').textContent());
-  registra(estado.pedidos.length === 2 && baixados.length === 0, 'Limite: só saíram o Compartilhar e a 1a tentativa da fila (nenhum laço, nenhum toque extra)', { pedidos: estado.pedidos, baixados });
+  registra(estado.pedidos.length === 1 && baixados.length === 0, 'Limite: só saiu a 1a tentativa da fila (nenhum laço, nenhum toque extra)', { pedidos: estado.pedidos, baixados });
   registra(await page.locator('#g-folha').isVisible(), 'Limite: a folha fica aberta com o aviso', '');
   await page.locator('[data-acao="cancela-fila"]').tap();
   await espera(page, 1500);
   registra(await page.locator('[data-acao="cancela-fila"]').count() === 0, 'Limite: Cancelar encerra a fila e some', '');
-  registra(estado.pedidos.length === 2, 'Limite: depois de cancelar nada mais é pedido', estado.pedidos);
+  registra(estado.pedidos.length === 1, 'Limite: depois de cancelar nada mais é pedido', estado.pedidos);
   registra(estado.erros.length === 0 && estado.csp.length === 0, 'Limite: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
@@ -934,26 +1124,33 @@ await cenario('iPad', async () => {
   await ctx.close();
 });
 
-// ---- 6. Seleção ------------------------------------------------------------
+// ---- 6. Favoritas: a única marca (v4.4.0 juntou a antiga "Seleção") ----------
 // Três fotos marcadas, UMA sem versão do Instagram (a 6ª, índice 5).
-await cenario('Seleção', async () => {
+await cenario('Favoritas: baixar', async () => {
   const { ctx, page, estado } = await abre({});
-  await page.locator('#g-sel').click();
-  for (const i of [0, 3, 5]) await page.locator('.g-t').nth(i).click();
-  registra((await page.locator('#g-barra-n').textContent()) === '3 selecionadas', 'Seleção: marca três fotos', await page.locator('#g-barra-n').textContent());
-  const nomes = await page.locator('.g-t.sel').evaluateAll(els => els.map(e => e.getAttribute('aria-label')));
-  registra(nomes.join('|') === 'Foto 001, selecionada|Foto 004, selecionada|Foto 006, selecionada', 'Seleção: o leitor de tela ouve "selecionada" no nome da foto', nomes);
-  registra((await page.locator('.pswp--open').count()) === 0, 'Seleção: no modo seleção, tocar marca em vez de abrir', '');
+  registra(await page.locator('#g-sel, #g-barra, .g-ck, [data-acao="sel-secao"]').count() === 0,
+    'Favoritas: não há mais botão "Selecionar", barra de seleção nem ✓ na miniatura', '');
+  for (const i of [0, 3, 5]) {
+    await page.locator('.g-t').nth(i).hover();
+    await page.locator('.g-t').nth(i).locator('.g-fav').click();
+  }
+  const nomes = await page.locator('.g-t.fav').evaluateAll(els => els.map(e => e.getAttribute('aria-label')));
+  registra(nomes.join('|') === 'Foto 001, favorita|Foto 004, favorita|Foto 006, favorita', 'Favoritas: o leitor de tela ouve "favorita" no nome da foto', nomes);
+  registra((await page.locator('.pswp--open').count()) === 0, 'Favoritas: o coração da miniatura marca sem abrir a foto', '');
+  registra(await page.locator('[data-acao="baixar-fav"]').count() === 0, 'Favoritas: "Baixar" só aparece com o filtro de favoritas ligado', '');
   await page.reload();
   await espera(page, 900);
-  registra((await page.locator('#g-barra-n').textContent()) === '3 selecionadas' && (await page.locator('.g-t.sel').count()) === 3, 'Seleção: sobrevive a recarregar a página', '');
-  await page.locator('[data-acao="baixar-sel"]').click();
+  await page.locator('.g-chip[data-acao="filtro-fav"]').click();
+  await espera(page, 400);
+  const acoes = await page.locator('.g-chip[data-acao="baixar-fav"], .g-chip[data-acao="compartilhar-fav"]').allTextContents();
+  registra(acoes.join('|') === 'Baixar|Compartilhar', 'Favoritas: com o filtro ligado, o topo oferece Baixar e Compartilhar', acoes);
+  await page.locator('[data-acao="baixar-fav"]').click();
   await page.waitForSelector('#g-folha:not([hidden])');
-  registra((await page.locator('#g-folha-t').textContent()) === 'Baixar 3 fotos', 'Seleção: a folha baixa as três', await page.locator('#g-folha-t').textContent());
+  registra((await page.locator('#g-folha-t').textContent()) === 'Baixar 3 fotos', 'Favoritas: a folha baixa as três', await page.locator('#g-folha-t').textContent());
   const detalhes = await page.locator('.g-op span').allTextContents();
-  registra(/^2 de 3 fotos têm esta versão \(as outras ficam de fora\)/.test(detalhes[0] || ''), 'Seleção: "para redes" diz quantas das fotos têm a versão', detalhes[0]);
-  registra(/^Os arquivos originais, sem alteração/.test(detalhes[1] || ''), 'Seleção: "tamanho máximo" cobre as três', detalhes[1]);
-  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'selecao-desktop.png') });
+  registra(/^2 de 3 fotos têm esta versão \(as outras ficam de fora\)/.test(detalhes[0] || ''), 'Favoritas: "para redes" diz quantas das fotos têm a versão', detalhes[0]);
+  registra(/^Os arquivos originais, sem alteração/.test(detalhes[1] || ''), 'Favoritas: "tamanho máximo" cobre as três', detalhes[1]);
+  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'favoritas-desktop.png') });
   /** @type {string[]} */
   const pedidos = [];
   page.on('download', d => { const u = new URL(d.url()); pedidos.push(u.pathname.split('/').pop() + u.search); });
@@ -962,35 +1159,63 @@ await cenario('Seleção', async () => {
   // Ordenados: o Chromium pode avisar os downloads fora da ordem em que a página
   // os pede (no #278, 06/11/2026, chegaram 0, 5, 3). O que vale é um por foto.
   registra([...pedidos].sort().join(',') === 'RAIZFOTO_000000?v=redes,RAIZFOTO_000003?v=redes',
-    'Seleção: "para redes" baixa só as duas fotos que têm a versão, uma a uma', pedidos);
-  await page.locator('[data-acao="baixar-sel"]').click();
+    'Favoritas: "para redes" baixa só as duas fotos que têm a versão, uma a uma', pedidos);
+  await page.locator('[data-acao="baixar-fav"]').click();
   await page.waitForSelector('#g-folha:not([hidden])');
   pedidos.length = 0;
   await page.locator('.g-op').nth(1).click();
   await espera(page, 3200);
   registra([...pedidos].sort().join(',') === 'RAIZFOTO_000000?v=max,RAIZFOTO_000003?v=max,RAIZFOTO_000005?v=max',
-    'Seleção: "tamanho máximo" baixa as três, um download por foto', pedidos);
-  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+    'Favoritas: "tamanho máximo" baixa as três, um download por foto', pedidos);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Favoritas: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
-// Seleção no iPhone: "Salvar N fotos no Fotos" com os arquivos exatos de cada uma.
-await cenario('Seleção no iPhone', async () => {
+// Quem tinha fotos na seleção antiga (até a 4.1) as encontra nas favoritas.
+await cenario('Seleção antiga vira favorita', async () => {
+  const { ctx, page, estado } = await abre({});
+  await page.evaluate(() => {
+    localStorage.setItem('galeria:sel:formatura', JSON.stringify(['RAIZFOTO_000002', 'RAIZFOTO_000007']));
+    localStorage.setItem('galeria:fav:formatura', JSON.stringify(['RAIZFOTO_000007', 'RAIZFOTO_000009']));
+  });
+  await page.reload();
+  await espera(page, 900);
+  const fav = await page.evaluate(() => JSON.parse(localStorage.getItem('galeria:fav:formatura') || '[]').sort().join(','));
+  const sel = await page.evaluate(() => localStorage.getItem('galeria:sel:formatura'));
+  registra(fav === 'RAIZFOTO_000002,RAIZFOTO_000007,RAIZFOTO_000009' && sel === null && (await page.locator('.g-t.fav').count()) === 3,
+    'Seleção antiga: entra nas favoritas (sem repetir) e a chave antiga sai', { fav, sel });
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção antiga: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+
+// Favoritas no iPhone: o coração da foto aberta, depois Favoritas → Baixar:
+// "Salvar N fotos no Fotos" com os arquivos exatos de cada uma.
+await cenario('Favoritas no iPhone', async () => {
   const { ctx, page, estado } = await abre({ viewport: { width: 390, height: 844 }, dpr: 3, toque: true, compartilhar: true, ua: UA_IPHONE });
-  await page.locator('#g-sel').tap();
-  for (const i of [0, 1, 5]) await page.locator('.g-t').nth(i).tap();
-  await page.locator('[data-acao="baixar-sel"]').tap();
+  for (const i of [0, 1, 5]) {
+    await page.locator('.g-t').nth(i).tap();
+    await page.waitForSelector('.pswp--open');
+    await espera(page, 500);
+    await page.locator('.pswp__button--g-fav').tap();
+    await page.locator('.pswp__button--close').tap();
+    await page.waitForSelector('.pswp--open', { state: 'detached' });
+    await espera(page, 300);
+  }
+  await page.locator('.g-chip[data-acao="filtro-fav"]').tap();
+  await espera(page, 400);
+  if (PRINTS) await page.screenshot({ path: join(PRINTS, 'favoritas-iphone.png') });
+  await page.locator('[data-acao="baixar-fav"]').tap();
   await page.waitForSelector('#g-folha:not([hidden])');
   const rotulos = await page.locator('.g-ver-a').first().locator('.g-btn').allTextContents();
-  registra(rotulos.join('|') === 'Salvar 2 fotos no Fotos|Baixar arquivo', 'Seleção no iPhone: o botão diz quantas fotos vão para o Fotos (as que têm a versão)', rotulos);
+  registra(rotulos.join('|') === 'Salvar 2 fotos no Fotos|Baixar arquivo', 'Favoritas no iPhone: o botão diz quantas fotos vão para o Fotos (as que têm a versão)', rotulos);
   await page.locator('.g-ver-a').first().locator('.g-btn').first().tap();
   await page.waitForFunction(() => /** @type {any} */ (window).__compartilhados.length >= 2, null, { timeout: 8000 });
   const comp = await page.evaluate(() => /** @type {any} */ (window).__compartilhados);
   registra(comp.length === 2 && comp[0].nome === '001.JPG' && comp[1].nome === '002.jpg'
     && comp[0].b64 === b64(conteudo('RAIZFOTO_000000', 'redes')) && comp[1].b64 === b64(conteudo('RAIZFOTO_000001', 'redes')),
-  'Seleção no iPhone: uma só folha do sistema, com os arquivos exatos (nome e bytes) das duas fotos', comp.map(( /** @type {any} */ c) => c.nome));
-  registra(estado.downloads.join(',') === 'RAIZFOTO_000000:redes,RAIZFOTO_000001:redes', 'Seleção no iPhone: só as fotos com a versão são pedidas', estado.downloads);
-  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Seleção no iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
+  'Favoritas no iPhone: uma só folha do sistema, com os arquivos exatos (nome e bytes) das duas fotos', comp.map(( /** @type {any} */ c) => c.nome));
+  registra(estado.downloads.join(',') === 'RAIZFOTO_000000:redes,RAIZFOTO_000001:redes', 'Favoritas no iPhone: só as fotos com a versão são pedidas', estado.downloads);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Favoritas no iPhone: sem erro de JS nem CSP', [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
 
@@ -1039,16 +1264,6 @@ await cenario('Cabeçalho e favoritas', async () => {
   await page.keyboard.press('Escape');
   await espera(page, 400);
 
-  // Seleção: "Selecionar todas" por seção e Shift+clique para intervalo.
-  await page.locator('#g-sel').click();
-  await page.locator('[data-acao="sel-secao"][data-sec="0"]').click();
-  registra(await page.locator('.g-t.sel').count() === 24, '"Selecionar todas" marca a seção inteira', await page.locator('.g-t.sel').count());
-  await page.locator('[data-acao="limpar-sel"]').click();
-  await page.locator('.g-t').nth(2).click();
-  await page.locator('.g-t').nth(6).click({ modifiers: ['Shift'] });
-  registra(await page.locator('.g-t.sel').count() === 5, 'Shift+clique seleciona o intervalo', await page.locator('.g-t.sel').count());
-  await page.locator('[data-acao="fim-sel"]').click();
-
   // Voltar ao topo: some no topo, aparece rolando, volta e leva o foco ao título.
   registra(!(await page.locator('#g-topo').evaluate(e => e.classList.contains('on'))), 'Voltar ao topo: escondido no começo da página', '');
   await page.evaluate(() => window.scrollTo(0, 3000));
@@ -1073,8 +1288,20 @@ await cenario('Centenas de fotos', async () => {
   const listagem = { ...LISTAGEM, total: N, secoes: [{ nome: '', caminho: '', fotos: muitas }] };
   const pagina = await paginaAssinada({ event: EVENTO, listagem, erro: null, nonce: NONCE });
   const { ctx, page, estado } = await abre({ pagina, viewport: { width: 1440, height: 900 } });
-  const miniaturas = await page.locator('.g-t').count();
+  const miniaturas = await page.evaluate(() => [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0));
   registra(miniaturas === N, `${N} fotos: todas as miniaturas existem na grade`, miniaturas);
+  // Grade virtual: rolar até o fim traz a última foto, e o começo sai do DOM.
+  const fimDaGrade = await page.evaluate(async () => {
+    const noDom0 = document.querySelectorAll('.g-t').length;
+    window.scrollTo(0, document.scrollingElement.scrollHeight);
+    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => window.requestAnimationFrame(() => window.requestAnimationFrame(r)));
+    const is = [...document.querySelectorAll('.g-t')].map(t => Number(/** @type {HTMLElement} */ (t).dataset.i));
+    window.scrollTo(0, 0);
+    return { noDom0, noDomFim: is.length, ultima: Math.max(...is), primeira: Math.min(...is) };
+  });
+  registra(fimDaGrade.noDom0 < N / 2 && fimDaGrade.ultima === N - 1 && fimDaGrade.primeira > 0 && fimDaGrade.noDomFim < N / 2,
+    `${N} fotos: grade virtual (no DOM só o que está perto; no fim, a última foto está lá)`, fimDaGrade);
   registra(estado.lh3.length <= 80, `${N} fotos: só as da tela (e um pouco mais) são pedidas ao carregar`, estado.lh3.length);
   const custo = await page.evaluate(() => {
     const t0 = performance.now();
@@ -1091,6 +1318,51 @@ await cenario('Centenas de fotos', async () => {
   registra(estado.erros.length === 0 && estado.csp.length === 0, `${N} fotos: sem erro de JS nem CSP`, [...estado.erros, ...estado.csp]);
   await ctx.close();
 });
+
+// ---- 6c'. Medida (só com MEDE_GRADE=1): o custo da grade num celular lento --
+// Não reprova nada: imprime o tempo até a grade existir, as tarefas longas e o
+// número de elementos, para decidir otimizações com número na mão.
+if (process.env.MEDE_GRADE) {
+  for (const N of (process.env.MEDE_GRADE_N || '300,1300,3000').split(',').map(Number)) {
+    await cenario(`Medida ${N}`, async () => {
+      const muitas = Array.from({ length: N }, (_, i) => {
+        const [w, h] = FORMATOS[i % FORMATOS.length];
+        return /** @type {[string, number, number, string, number]} */ ([pid('MEDEFOTO', i), w, h, `m-${i + 1}.jpg`, 9_000_000]);
+      });
+      for (const f of muitas) POR_ID.set(f[0], f);
+      const listagem = { ...LISTAGEM, total: N, secoes: [{ nome: '', caminho: '', fotos: muitas }] };
+      const pagina = await paginaAssinada({ event: EVENTO, listagem, erro: null, nonce: NONCE });
+      const { ctx, page } = await abre({ pagina, viewport: { width: 412, height: 915 }, dpr: 2.625, toque: true, ua: UA_IPHONE, cpu: 4, medeTarefas: true, esperaAbrir: 0, ...(process.env.MEDE_URL ? { url: process.env.MEDE_URL } : {}) });
+      await page.waitForFunction(n => [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0) === n, N, { timeout: 60000 });
+      await page.waitForTimeout(2500);
+      if (/** @type {any} */ (page).__cdp) {
+        const { profile } = await /** @type {any} */ (page).__cdp.send('Profiler.stop');
+        const self = new Map();
+        const dt = profile.timeDeltas; const porNo = new Map(profile.nodes.map((/** @type {any} */ n) => [n.id, n]));
+        profile.samples.forEach((/** @type {number} */ id, /** @type {number} */ i) => { const n = porNo.get(id); const k = (n.callFrame.functionName || '(anon)') + ':' + n.callFrame.lineNumber; self.set(k, (self.get(k) || 0) + (dt[i] || 0) / 1000); });
+        const { metrics } = await /** @type {any} */ (page).__cdp.send('Performance.getMetrics');
+        const m = Object.fromEntries(metrics.map((/** @type {any} */ x) => [x.name, x.value]));
+        console.log(`METRICAS N=${N}`, ['TaskDuration', 'ScriptDuration', 'RecalcStyleDuration', 'LayoutDuration', 'RecalcStyleCount', 'LayoutCount', 'Nodes'].map(k => k + '=' + (k.endsWith('Duration') ? Math.round(m[k] * 1000) + 'ms' : m[k])).join('  '));
+        console.log(`PERFIL N=${N}`, [...self].sort((x, y) => y[1] - x[1]).slice(0, 18).map(([k, v]) => k + '=' + Math.round(v)).join('  '));
+      }
+      console.log(`MARCAS N=${N}`, await page.evaluate(() => { const m = performance.getEntriesByType('mark'); const nav = /** @type {any} */ (performance.getEntriesByType('navigation')[0]); return 'html=' + Math.round(nav.responseEnd) + ' dcl=' + Math.round(nav.domContentLoadedEventStart) + ' ' + m.map((x, i) => x.name + '=' + Math.round(x.startTime) + (i ? '(+' + Math.round(x.startTime - m[i - 1].startTime) + ')' : '')).join(' '); }));
+      const abrir = await page.evaluate(() => {
+        const l = /** @type {any} */ (window).__longas;
+        return { grade: Math.round(performance.now()), nos: document.getElementsByTagName('*').length, longas: l.length, somaLongas: l.reduce((/** @type {number} */ t, /** @type {number[]} */ x) => t + x[1], 0), maior: l.reduce((/** @type {number} */ t, /** @type {number[]} */ x) => Math.max(t, x[1]), 0), lista: l.slice(0, 8) };
+      });
+      await page.evaluate(() => { /** @type {any} */ (window).__longas = []; });
+      for (let y = 0; y <= 20000; y += 1500) { await page.evaluate(v => window.scrollTo(0, v), y); await page.waitForTimeout(120); }
+      await page.waitForTimeout(800);
+      const rolar = await page.evaluate(() => { const l = /** @type {any} */ (window).__longas; return { longas: l.length, soma: l.reduce((/** @type {number} */ t, /** @type {number[]} */ x) => t + x[1], 0), maior: l.reduce((/** @type {number} */ t, /** @type {number[]} */ x) => Math.max(t, x[1]), 0) }; });
+      const t0 = Date.now();
+      await page.locator('.g-t').nth(2).tap();
+      await page.waitForSelector('.pswp--open');
+      const toque = Date.now() - t0;
+      console.log(`MEDIDA N=${N}`, JSON.stringify({ abrir, rolar, toqueAteAbrirMs: toque }));
+      await ctx.close();
+    });
+  }
+}
 
 // ---- 6d. Ocultar dos visitantes (só o dono) ---------------------------------
 await cenario('Ocultar', async () => {
@@ -1152,7 +1424,7 @@ await cenario('Ocultar', async () => {
 await cenario('Pedir remoção', async () => {
   const PAG = await paginaAssinada({ event: EVENTO, listagem: LISTAGEM, erro: null, nonce: NONCE, dono: false, redes: REDES, formToken: 'token-de-teste' });
   const { ctx, page, estado } = await abre({ pagina: PAG });
-  const total0 = await page.locator('.g-t').count();
+  const total0 = await page.evaluate(() => [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0));
   const ALVO = raiz[0][0];
   const SEGUINTE = raiz[1][0];
   await page.locator('.g-t').first().click();
@@ -1230,7 +1502,7 @@ await cenario('Pedir remoção', async () => {
   const aposEnvio = await page.evaluate(([a, b]) => ({
     alvoNaGrade: document.querySelectorAll('.g-t[href="?foto=' + a + '"]').length,
     seguinteNaGrade: document.querySelectorAll('.g-t[href="?foto=' + b + '"]').length,
-    total: document.querySelectorAll('.g-t').length,
+    total: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0),
     indices: [...document.querySelectorAll('.g-t')].every((t, i) => /** @type {HTMLElement} */ (t).dataset.i === String(i)),
   }), [ALVO, SEGUINTE]);
   registra(aposEnvio.alvoNaGrade === 1 && aposEnvio.seguinteNaGrade === 1 && aposEnvio.total === total0 && aposEnvio.indices,
@@ -1260,7 +1532,7 @@ await cenario('Pedir remoção', async () => {
   const recusa = await rec.page.evaluate(() => ({
     erro: document.getElementById('g-rem-erro')?.textContent || '',
     formVisivel: !(/** @type {HTMLElement} */ (document.getElementById('g-rem-f'))).hidden,
-    fotos: document.querySelectorAll('.g-t').length,
+    fotos: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0),
     habilitado: !(/** @type {HTMLButtonElement} */ (document.getElementById('g-rem-enviar'))).disabled,
   }));
   registra(recusa.erro.includes('Verificação') && recusa.formVisivel && recusa.fotos === total0 && recusa.habilitado,
@@ -1278,7 +1550,7 @@ await cenario('Pedir remoção', async () => {
   await teto.page.fill('#g-rem-email', 'ana@example.com');
   await teto.page.locator('#g-rem-enviar').click();
   await espera(teto.page, 600);
-  const semOcultar = await teto.page.evaluate(() => ({ txt: document.getElementById('g-rem-ok-txt')?.textContent || '', fotos: document.querySelectorAll('.g-t').length }));
+  const semOcultar = await teto.page.evaluate(() => ({ txt: document.getElementById('g-rem-ok-txt')?.textContent || '', fotos: [...document.querySelectorAll('.g-bloco')].reduce((n, b) => n + Number(/** @type {HTMLElement} */ (b).dataset.n || 0), 0) }));
   registra(semOcultar.fotos === total0 && !semOcultar.txt.includes('saiu da galeria') && semOcultar.txt.includes('analisar'),
     'Pedir remoção: a foto continua na galeria e o texto só diz que será analisado', semOcultar);
   await teto.ctx.close();
@@ -1508,9 +1780,10 @@ await cenario('Índice: N novas desde a última visita', async () => {
 
 // ---- 6g. Vídeos e Live Photo (item 1f) --------------------------------------
 // O vídeo é um item da grade (selo de play com a duração); o Live Photo é uma
-// foto com selo "LIVE". No visualizador o vídeo abre como FACHADA (miniatura +
-// botão de play, nada do Google carrega); só o toque no play coloca o iframe do
-// player do Drive. O CSP libera o frame do Drive só nesta página.
+// foto com selo "LIVE". No visualizador (v4.4.0) o vídeo abre no player estilo
+// reels: <video> da própria origem, tocando mudo, toque pausa, botão de som,
+// barra arrastável. Nada do Google carrega. Se o <video> falhar, cai na
+// FACHADA (miniatura + play) e só o toque no play põe o iframe do Drive.
 const MIDIA_FOTOS = /** @type {import('../src/drive.js').FotoDrive[]} */ ([
   ['MIDIAFOTO_000001', 4032, 3024, 'IMG_0100.HEIC', 3_000_000, 0, 20261105143000, ['MIDIALIVE_000001', 'IMG_0100.MOV', 2_000_000]],
   ['MIDIAVIDEO_00001', 1920, 1080, 'passeio.mp4', 90_000_000, 0, 0, 75],
@@ -1532,81 +1805,186 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([['desktop', { 
       live: [...document.querySelectorAll('.g-t .g-live')].map(e => (e.textContent || '').trim()),
       rotulos: [...document.querySelectorAll('.g-t')].map(a => a.getAttribute('aria-label')),
       iframes: document.querySelectorAll('iframe').length,
+      videos: document.querySelectorAll('video').length,
       lateral: document.scrollingElement.scrollWidth > window.innerWidth,
     }));
     registra(grade.n === 3 && grade.play.length === 1 && grade.play[0] === '1:15' && grade.live.length === 1 && grade.live[0] === 'LIVE',
       `Vídeo ${nome}: a grade mostra o selo de play com a duração (1:15) e o selo LIVE na foto`, grade);
     registra(/^Vídeo passeio/.test(grade.rotulos[1] || '') && /^Live Photo IMG_0100/.test(grade.rotulos[0] || '') && /^Foto IMG_0101/.test(grade.rotulos[2] || ''),
       `Vídeo ${nome}: o rótulo de cada tile diz se é vídeo, Live Photo ou foto`, grade.rotulos);
-    registra(grade.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: antes do toque nenhum iframe e nenhum pedido ao Google Drive`, { iframes: grade.iframes, drive: estado.drive });
+    registra(grade.iframes === 0 && grade.videos === 0 && estado.drive.length === 0 && estado.video.length === 0,
+      `Vídeo ${nome}: antes de abrir, nenhum player, nenhum pedido de vídeo nem ao Google Drive`, { ...grade, drive: estado.drive, video: estado.video });
     registra(!grade.lateral, `Vídeo ${nome}: sem rolagem lateral`);
 
-    // Abre o vídeo: fachada, ainda sem iframe nem pedido ao Drive.
+    // Abre o vídeo: o player toca sozinho, mudo, pela rota do próprio site.
     if (toque) await page.locator('.g-t').nth(1).tap(); else await page.locator('.g-t').nth(1).click();
     await page.waitForSelector('.pswp--open', { timeout: 5000 });
-    await espera(page, 1000);
-    const fachada = await page.evaluate(() => {
-      const box = document.querySelector('.pswp__item[aria-hidden="false"] .g-vid') || document.querySelector('.pswp .g-vid');
-      const b = box && box.querySelector('.g-vid-play');
-      const r = b ? b.getBoundingClientRect() : null;
+    await page.waitForFunction(() => { const v = /** @type {HTMLVideoElement|null} */ (document.querySelector('.pswp .g-reel video')); return !!v && !v.paused && v.currentTime > 0; }, null, { timeout: 6000 }).catch(() => {});
+    const player = await page.evaluate(() => {
+      const box = document.querySelector('.pswp .g-reel');
+      const v = /** @type {HTMLVideoElement|null} */ (box && box.querySelector('video'));
+      const som = box && box.querySelector('.g-vid-som');
+      const barra = box && box.querySelector('.g-vid-barra');
+      const rs = som ? som.getBoundingClientRect() : null;
+      const rv = v ? v.getBoundingClientRect() : null;
       return {
-        tem: !!box, botao: !!b, rotulo: b ? b.getAttribute('aria-label') : '', dur: box && box.querySelector('.g-vid-dur') ? (box.querySelector('.g-vid-dur').textContent || '') : '',
-        alvo: r ? Math.round(Math.min(r.width, r.height)) : 0, iframes: document.querySelectorAll('iframe').length,
+        tem: !!v, tocando: !!v && !v.paused, mudo: !!v && v.muted, inline: !!v && v.hasAttribute('playsinline'), loop: !!v && v.loop,
+        poster: v ? v.getAttribute('poster') : '', src: v ? v.getAttribute('src') : '', controls: !!v && v.controls,
+        som: som ? { rotulo: som.getAttribute('aria-label'), pressed: som.getAttribute('aria-pressed'), alvo: rs ? Math.round(Math.min(rs.width, rs.height)) : 0 } : null,
+        barra: barra ? { role: barra.getAttribute('role'), texto: barra.getAttribute('aria-valuetext'), foco: /** @type {HTMLElement} */ (barra).tabIndex } : null,
+        resta: (box && box.querySelector('.g-vid-resta') || { textContent: '' }).textContent,
+        enche: rv ? Math.round(rv.width) >= Math.round(window.innerWidth * 0.95) || Math.round(rv.height) >= Math.round(window.innerHeight * 0.6) : false,
+        iframes: document.querySelectorAll('iframe').length,
         legenda: (document.querySelector('.pswp__g-legenda') || document.body).textContent,
       };
     });
-    registra(fachada.tem && fachada.botao && /^Tocar o vídeo passeio/.test(fachada.rotulo) && fachada.dur === '1:15' && fachada.alvo >= 44,
-      `Vídeo ${nome}: o visualizador abre a fachada (miniatura, botão Tocar com 44 px e duração)`, fachada);
-    registra(fachada.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: a fachada não carrega nada do Google`, { iframes: fachada.iframes, drive: estado.drive });
-    registra(/passeio/.test(fachada.legenda || ''), `Vídeo ${nome}: a legenda mostra o nome do vídeo`, fachada.legenda);
+    registra(player.tem && player.tocando && player.mudo && player.inline && player.loop && !player.controls,
+      `Vídeo ${nome}: o slide do vídeo toca sozinho, mudo, inline e em loop, sem os controles do navegador`, player);
+    registra(/\/galeria\/formatura\/video\/MIDIAVIDEO_00001$/.test(player.src || '') && /\/f\/MIDIAVIDEO_00001\/1280/.test(player.poster || ''),
+      `Vídeo ${nome}: o vídeo vem da rota do próprio site e o pôster é a miniatura`, { src: player.src, poster: player.poster });
+    registra(estado.video.length > 0 && estado.video.every(x => x.id === 'MIDIAVIDEO_00001') && estado.video.some(x => /^bytes=0-/.test(x.range)),
+      `Vídeo ${nome}: o navegador pede o vídeo com Range (é o que deixa pular e tocar no iPhone)`, estado.video);
+    registra(player.iframes === 0 && estado.drive.length === 0, `Vídeo ${nome}: nada do Google Drive (nem iframe)`, { iframes: player.iframes, drive: estado.drive });
+    registra(!!player.som && player.som.rotulo === 'Ligar o som' && player.som.pressed === 'false' && player.som.alvo >= 44,
+      `Vídeo ${nome}: botão de som redondo de 44 px, rotulado, começando mudo`, player.som);
+    registra(!!player.barra && player.barra.role === 'slider' && player.barra.foco === 0 && / de 1:15$| de 0:0[0-9]$/.test(player.barra.texto || '') && /^-\d+:\d\d$/.test(player.resta || ''),
+      `Vídeo ${nome}: barra de progresso acessível (slider) e o tempo que falta`, { barra: player.barra, resta: player.resta });
+    registra(player.enche, `Vídeo ${nome}: o vídeo ocupa o slide`, player);
+    registra(/passeio/.test(player.legenda || ''), `Vídeo ${nome}: a legenda mostra o nome do vídeo`, player.legenda);
 
-    // O toque no play coloca o iframe do player, sem violar o CSP.
-    if (toque) await page.locator('.g-vid-play').first().tap(); else await page.locator('.g-vid-play').first().click();
-    await espera(page, 900);
-    const tocando = await page.evaluate(() => {
-      const f = document.querySelector('.pswp iframe');
-      return f ? { src: f.getAttribute('src'), allow: f.getAttribute('allow'), sandbox: f.getAttribute('sandbox'), ref: f.getAttribute('referrerpolicy') } : null;
+    // Toque/clique no vídeo pausa (ícone de play aparece); de novo, continua.
+    const naTela = page.locator('.pswp .g-reel video');
+    const toca = async () => { if (toque) await naTela.tap({ position: { x: 60, y: 120 } }); else await naTela.click({ position: { x: 60, y: 120 } }); };
+    await toca();
+    await espera(page, toque ? 700 : 400);
+    const pausado = await page.evaluate(() => ({ p: !!(/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).paused, cls: !!document.querySelector('.pswp .g-reel.pausado'), barraUi: document.querySelector('.pswp')?.classList.contains('pswp--ui-visible') }));
+    registra(pausado.p && pausado.cls && pausado.barraUi, `Vídeo ${nome}: tocar no vídeo pausa e mostra o ícone de play (sem esconder a barra do visualizador)`, pausado);
+    await toca();
+    await espera(page, toque ? 700 : 400);
+    const voltou = await page.evaluate(() => !(/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).paused);
+    registra(voltou, `Vídeo ${nome}: tocar de novo continua`, voltou);
+
+    // Som: liga, vale para a sessão, e o toque no botão não pausa o vídeo.
+    const cobre = await page.evaluate(() => {
+      const b = document.querySelector('.pswp .g-vid-som');
+      if (!b) return 'sem botão';
+      const r = b.getBoundingClientRect();
+      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return el === b || b.contains(el) ? 'livre' : (el ? el.className || el.tagName : 'nada') + ' ' + JSON.stringify(r);
     });
-    registra(!!tocando && tocando.src === 'https://drive.google.com/file/d/MIDIAVIDEO_00001/preview' && tocando.allow === 'fullscreen',
-      `Vídeo ${nome}: o toque no play põe o player do Drive (/preview, só tela cheia)`, tocando);
-    registra(estado.drive.some(x => x === '/file/d/MIDIAVIDEO_00001/preview'), `Vídeo ${nome}: só agora o Drive é chamado`, estado.drive);
+    registra(cobre === 'livre', `Vídeo ${nome}: nada cobre o botão de som`, cobre);
+    if (process.env.VERIFICA_PRINTS) await page.screenshot({ path: join(process.env.VERIFICA_PRINTS, `video-${nome.replace(/\W+/g, '-')}.png`) });
+    const cobreBarra = await page.evaluate(() => {
+      const b = document.querySelector('.pswp .g-vid-barra');
+      if (!b) return 'sem barra';
+      const r = b.getBoundingClientRect();
+      const el = document.elementFromPoint(r.x + r.width * 0.8, r.y + r.height / 2);
+      return el === b || b.contains(el) ? 'livre' : (el ? el.className || el.tagName : 'nada');
+    });
+    registra(cobreBarra === 'livre', `Vídeo ${nome}: nada cobre a barra de progresso`, cobreBarra);
+    if (toque) await page.locator('.pswp .g-vid-som').tap(); else await page.locator('.pswp .g-vid-som').click();
+    await espera(page, 300);
+    const som = await page.evaluate(() => {
+      const v = /** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'));
+      const b = /** @type {HTMLElement} */ (document.querySelector('.pswp .g-vid-som'));
+      return { mudo: v.muted, tocando: !v.paused, rotulo: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), guardado: sessionStorage.getItem('g-som'), aberto: !!document.querySelector('.pswp--open') };
+    });
+    registra(!som.mudo && som.tocando && som.rotulo === 'Desligar o som' && som.pressed === 'true' && som.guardado === '1' && som.aberto,
+      `Vídeo ${nome}: o botão liga o som (lembrado na sessão) sem pausar nem fechar`, som);
 
-    // Sair do slide devolve a fachada (o vídeo para de tocar).
-    // (Com o foco dentro do player o teclado é do player: troca pelos botões.)
+    // Barra: arrastar/tocar nela pula; as setas no teclado andam o vídeo e NÃO trocam de slide.
+    await page.evaluate(() => { const v = /** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video')); v.pause(); v.currentTime = 0; });
+    await espera(page, 200);
+    const bb = await page.locator('.pswp .g-vid-barra').boundingBox();
+    if (bb) {
+      if (toque) await page.touchscreen.tap(bb.x + bb.width * 0.8, bb.y + bb.height / 2); else await page.mouse.click(bb.x + bb.width * 0.8, bb.y + bb.height / 2);
+    }
+    await espera(page, 400);
+    const pulo = await page.evaluate(() => {
+      const v = /** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'));
+      return { t: v.currentTime, pausado: v.paused, aberto: !!document.querySelector('.pswp--open'), legenda: (document.querySelector('.pswp__g-legenda') || document.body).textContent };
+    });
+    registra(pulo.aberto && pulo.pausado && pulo.t > 0.3 && /passeio/.test(pulo.legenda || ''), `Vídeo ${nome}: tocar na barra pula o vídeo (parado) sem trocar de slide`, pulo);
+    await page.evaluate(() => (/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).play());
+    if (!toque) {
+      await page.locator('.pswp .g-vid-barra').focus();
+      const antes = await page.evaluate(() => (/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).currentTime);
+      await page.keyboard.press('Home');
+      await espera(page, 200);
+      const depoisHome = await page.evaluate(() => (/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).currentTime);
+      await page.keyboard.press('ArrowRight');
+      await espera(page, 300);
+      const teclado = await page.evaluate(() => ({ legenda: (document.querySelector('.pswp__g-legenda') || document.body).textContent, now: (document.querySelector('.pswp .g-vid-barra') || { getAttribute: () => '' }).getAttribute('aria-valuenow') }));
+      registra(depoisHome < antes + 0.01 && /passeio/.test(teclado.legenda || ''), `Vídeo ${nome}: Home/setas na barra mexem no vídeo e não trocam de slide`, { antes, depoisHome, teclado });
+      // Espaço (foco fora dos controles) pausa.
+      await page.locator('.pswp').evaluate(el => /** @type {HTMLElement} */ (el).focus());
+      await page.keyboard.press(' ');
+      await espera(page, 300);
+      const espaco = await page.evaluate(() => (/** @type {HTMLVideoElement} */ (document.querySelector('.pswp .g-reel video'))).paused);
+      registra(espaco, `Vídeo ${nome}: a barra de espaço pausa`, espaco);
+      await page.keyboard.press(' ');
+      await espera(page, 300);
+    }
+
+    // Sair do slide pausa o vídeo.
     if (toque) {
-      // No toque o PhotoSwipe esconde as setas (a troca é o arrastar): fecha e
-      // reabre o vídeo — o player não pode voltar sozinho.
       await page.locator('.pswp__button--close').tap();
       await espera(page, 700);
-      await page.locator('.g-t').nth(1).tap();
-      await page.waitForSelector('.pswp--open', { timeout: 5000 });
-      await espera(page, 900);
+      const fechado = await page.evaluate(() => [...document.querySelectorAll('video')].every(v => v.paused));
+      registra(fechado, `Vídeo ${nome}: fechar o visualizador para o vídeo`, fechado);
     } else {
-      await page.locator('.pswp__button--arrow--prev').click();
-      await espera(page, 800);
       await page.locator('.pswp__button--arrow--next').click();
-      await espera(page, 800);
+      await espera(page, 700);
+      const fora = await page.evaluate(() => [...document.querySelectorAll('.pswp video')].every(v => v.paused));
+      registra(fora, `Vídeo ${nome}: trocar de slide pausa o vídeo`, fora);
+      await page.locator('.pswp__button--arrow--prev').click();
+      await page.waitForFunction(() => { const v = /** @type {HTMLVideoElement|null} */ (document.querySelector('.pswp .g-reel video')); return !!v && !v.paused; }, null, { timeout: 4000 }).catch(() => {});
+      const denovo = await page.evaluate(() => { const v = /** @type {HTMLVideoElement|null} */ (document.querySelector('.pswp .g-reel video')); return !!v && !v.paused && !v.muted; });
+      registra(denovo, `Vídeo ${nome}: voltar ao slide retoma o vídeo, com o som que a pessoa escolheu`, denovo);
+      await page.locator('.pswp__button--close').click();
+      await espera(page, 600);
     }
-    const volta = await page.evaluate(() => ({ iframes: document.querySelectorAll('.pswp iframe').length, botao: !!document.querySelector('.pswp .g-vid-play') }));
-    registra(volta.iframes === 0 && volta.botao, `Vídeo ${nome}: sair do slide e voltar traz a fachada de novo (o vídeo parou)`, volta);
-
-    // Live Photo: o download oferece a foto E o vídeo do Live.
-    if (toque) await page.locator('.pswp__button--close').tap(); else await page.locator('.pswp__button--close').click();
-    await espera(page, 600);
     registra(estado.erros.length === 0 && estado.csp.length === 0, `Vídeo ${nome}: sem erro de JS nem violação de CSP`, [...estado.erros, ...estado.csp]);
     await ctx.close();
   });
 }
-await cenario('Vídeo: sem driveFrame o CSP barra o player', async () => {
-  // Prova de que a liberação do frame do Drive é mesmo o que faz o player
-  // funcionar: sem ela (página sem vídeo no servidor) o navegador bloqueia.
+await cenario('Vídeo: a rota falha e o slide cai no player do Drive', async () => {
+  const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, driveFrame: true, videoFalha: true });
+  await page.locator('.g-t').nth(1).click();
+  await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await page.waitForSelector('.pswp .g-vid-play', { timeout: 5000 }).catch(() => {});
+  const fachada = await page.evaluate(() => {
+    const b = document.querySelector('.pswp .g-vid-play');
+    const r = b ? b.getBoundingClientRect() : null;
+    return { botao: !!b, rotulo: b ? b.getAttribute('aria-label') : '', alvo: r ? Math.round(Math.min(r.width, r.height)) : 0, videos: document.querySelectorAll('.pswp video').length, iframes: document.querySelectorAll('iframe').length };
+  });
+  registra(fachada.botao && /^Tocar o vídeo passeio/.test(fachada.rotulo || '') && fachada.alvo >= 44 && fachada.videos === 0 && fachada.iframes === 0 && estado.drive.length === 0,
+    'Vídeo com falha: a fachada (miniatura + play de 44 px) entra no lugar, ainda sem nada do Google', { fachada, drive: estado.drive });
+  await page.locator('.g-vid-play').first().click();
+  await espera(page, 900);
+  const tocando = await page.evaluate(() => { const f = document.querySelector('.pswp iframe'); return f ? { src: f.getAttribute('src'), allow: f.getAttribute('allow') } : null; });
+  registra(!!tocando && tocando.src === 'https://drive.google.com/file/d/MIDIAVIDEO_00001/preview' && tocando.allow === 'fullscreen' && estado.drive.includes('/file/d/MIDIAVIDEO_00001/preview'),
+    'Vídeo com falha: o toque no play põe o player do Drive', { tocando, drive: estado.drive });
+  await page.locator('.pswp__button--arrow--prev').click();
+  await espera(page, 700);
+  await page.locator('.pswp__button--arrow--next').click();
+  await espera(page, 700);
+  const volta = await page.evaluate(() => ({ iframes: document.querySelectorAll('.pswp iframe').length, botao: !!document.querySelector('.pswp .g-vid-play') }));
+  registra(volta.iframes === 0 && volta.botao, 'Vídeo com falha: sair do slide e voltar traz a fachada (o iframe saiu)', volta);
+  registra(estado.erros.length === 0 && estado.csp.length === 0, 'Vídeo com falha: sem erro de JS nem violação de CSP', [...estado.erros, ...estado.csp]);
+  await ctx.close();
+});
+await cenario('Vídeo: sem a liberação na CSP nada de vídeo sai', async () => {
+  // Prova de que media-src/frame-src das páginas com vídeo são o que faz os
+  // players funcionarem: sem elas, o <video> e o frame do Drive são barrados.
   const { ctx, page, estado } = await abre({ pagina: PAGINA_MIDIA, driveFrame: false });
   await page.locator('.g-t').nth(1).click();
   await page.waitForSelector('.pswp--open', { timeout: 5000 });
+  await page.waitForSelector('.pswp .g-vid-play', { timeout: 5000 }).catch(() => {});
+  await page.locator('.g-vid-play').first().click().catch(() => {});
   await espera(page, 800);
-  await page.locator('.g-vid-play').first().click();
-  await espera(page, 800);
-  registra(estado.csp.some(x => /frame/i.test(x)) && estado.drive.length === 0, 'Vídeo: sem a liberação no CSP o frame do Drive é barrado (nenhum pedido sai)', { csp: estado.csp, drive: estado.drive });
+  registra(estado.csp.some(x => /media/i.test(x)) && estado.csp.some(x => /frame/i.test(x)) && estado.drive.length === 0 && estado.video.length === 0,
+    'Vídeo: sem a liberação na CSP o <video> e o frame do Drive são barrados (nenhum pedido sai)', { csp: estado.csp, drive: estado.drive, video: estado.video });
   await ctx.close();
 });
 

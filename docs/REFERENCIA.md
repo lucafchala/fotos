@@ -627,7 +627,7 @@ fotos/
 │   ├── build-icons.mjs      ← rasteriza src/content/icon-svg.js em PNG (src/content/icons.js, npm run build:icons)
 │   ├── verifica-navegador.mjs ← roteiro no Chromium contra o wrangler dev (npm run verifica:navegador)
 │   ├── verifica-evento.mjs  ← véspera de evento: portão do Drive (429, e-mail, álbum restrito sem Turnstile) e fotos por aparelho no Chromium, sem wrangler (npm run verifica:evento)
-│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, zoom, downloads exatos, "Salvar no Fotos" no iPhone, "Pedir remoção" (npm run verifica:galeria)
+│   ├── verifica-galeria.mjs ← galeria própria no Chromium: grade, resolução por aparelho, rede ruim, zoom, downloads exatos, "Salvar no Fotos" no iPhone, favoritas, vídeo, "Pedir remoção" (npm run verifica:galeria)
 │   ├── verifica-painel.mjs  ← o painel logado no Chromium, por aparelho (iPhone, Android, computador): criar, editar, ocultar, pedido de remoção (inclusive os feitos pela galeria, com foto e as duas decisões), métricas, trocar a senha, backup, Ajustes não salvos, sessão expirada no meio de uma edição, excluir, layout, foco e alvos de toque, escritas no KV (npm run verifica:painel)
 │   ├── verifica-envio.mjs   ← o envio pelo site no Chromium (celular), contra o Worker de verdade e o Google simulado: escolher, agrupar por dia, partes, rede caindo, recarregar e retomar, duplicata, passe recusado, 401 atrasado (npm run verifica:envio)
 │   ├── verifica-previa.mjs  ← a faixa e o menu "Testes" da prévia de PR no Chromium (celular e computador): portão lotado, banco fora, e-mail para o dono, métricas de exemplo (npm run verifica:previa)
@@ -1875,17 +1875,29 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
 
 - **Grade justificada**: cada foto na proporção real, sem recorte; uma seção por
   subpasta (até 2 níveis), em ordem natural (`2.jpg` antes de `10.jpg`).
-  Miniaturas do `lh3` na largura × DPR do aparelho, com o DPR limitado a 2×
-  (`MINIATURA_DPR_TETO`, 4.0.1: acima disso o quadradinho não ganha nada que
-  se veja e a foto pesa até o dobro), WebP decidido por decodificação de
-  verdade, carga preguiçosa. O visualizador não tem teto.
+  Miniaturas do `lh3` na largura × DPR real do aparelho (densidade cheia,
+  4.4.0), WebP decidido por decodificação de verdade, carga preguiçosa. O
+  teto de 2× da 4.0.1 (`MINIATURA_DPR_TETO`) virou o **modo leve**, que só
+  liga se o aparelho travar (ver *Densidade, modo leve e rede ruim* abaixo).
+  O visualizador não tem teto.
+- **Grade virtual (4.4.0)**: as linhas ficam em blocos de altura fixa e só os
+  blocos perto da tela têm miniaturas (um `IntersectionObserver` por bloco).
+  A abertura cria só os blocos das primeiras telas; o resto fica num calço
+  com a mesma altura, completado no tempo ocioso. Na rolagem, os blocos **na**
+  tela pedem primeiro; o que o dedo passou sem carregar vai para as
+  "passadas", baixadas depois, com o dedo parado.
 - **Visualizador** (PhotoSwipe 5, MIT, vendorizado em `vendor/photoswipe/` e
   servido em `/vendor/` — nenhum CDN de terceiro): abre na resolução da tela
   **em pixels físicos**, e o zoom pede a próxima largura da escada
   (`GALERIA_LARGURAS`) até o original. Gestos, teclado (setas, Esc) e
   `#foto=<id>` como link direto para uma foto. O **voltar** do celular fecha a
   camada de cima (a folha de download, depois a foto) em vez de sair da
-  galeria — como num app.
+  galeria — como num app. **Compartilhar** manda o link da foto (`?foto=`),
+  não o arquivo. **Vídeo** (4.4.0) toca no próprio visualizador, num
+  `<video>` servido por `/galeria/<slug>[/<capítulo>]/video/<id>` com `Range`.
+  A rota tem as mesmas checagens do download e um limite por IP próprio
+  (`GALERIA_VIDEO_BUCKET`), e o primeiro play copia o vídeo para o R2. Se ela
+  falhar, o slide cai no player do Drive.
 - **Downloads em duas versões, sem alterar o arquivo** (bytes exatos do
   Drive; o site não redimensiona nem recodifica, e só renomeia se o projeto
   ligar os nomes amigáveis): *tamanho
@@ -1902,8 +1914,11 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
   fotos / 80 MB (a folha do iOS segura tudo na memória da aba); se o sistema
   recusar os arquivos (`canShare`), cai sozinho no "Baixar arquivo". Ser iOS é a
   única checagem de plataforma da página (RETOMADA §5.13).
-- **Seleção** de várias fotos (lembrada no `localStorage` do aparelho),
-  baixadas uma a uma — nada de zip, que no celular não abre na galeria.
+- **Favoritas** (o coração; lembradas no `localStorage` do aparelho): desde
+  a 4.4.0, é a única marca, e a antiga "Seleção" (✓) foi juntada a elas. Com o
+  filtro ligado, "Baixar" usa a mesma folha de download, uma foto por vez
+  (nada de zip, que no celular não abre na galeria), e "Compartilhar" gera o
+  link `#sel=` (ver *Compartilhar as favoritas*).
 
 ### Carga no celular
 
@@ -1927,8 +1942,8 @@ id="g-dados">`, antes dele. E a primeira linha da primeira seção vem pronta no
 números do celular (alvo 300 px, 3 px entre fotos), só quando a linha é a
 mesma de 320 a 430 px de tela, não é a última da seção e não tem vídeo. Cada
 miniatura cresce na proporção dela (`--r`), então fecha justa sem o servidor
-saber a largura; o `sizes` tem o mesmo teto de densidade do script, para os
-dois pedirem o mesmo arquivo. As fontes do `<picture>` levam
+saber a largura; o `sizes` pede a mesma densidade do script ao abrir (a
+cheia, desde a 4.4.0), para os dois pedirem o mesmo arquivo. As fontes do `<picture>` levam
 `media="(max-width: 430px)"` e a `<img>` é um GIF vazio: no desktop a fileira
 fica escondida e nada baixa. O script tira a fileira (`#g-pre`) ao montar a
 grade. `tests/galeria-script.test.js` e `tests/galeria-fileira.test.js`
@@ -1967,6 +1982,30 @@ pré-carga leva o fator por `(min-resolution: Xdppx)` e o script usa a mesma
 escada (`MINIATURA_DPR_DEGRAUS`, enviada em `D.dpr`): fator diferente nos dois
 lados baixaria a foto do LCP duas vezes, e o `verifica:galeria` reprova isso
 ("1 pedido só" a 390@3 e 412@2,625).
+
+**Densidade, modo leve e rede ruim (4.4.0).** A pedido do dono, a grade
+voltou à densidade cheia. A pré-carga e a primeira fileira do servidor também
+pedem a cheia, sem os degraus de `min-resolution`. O fator fica gravado em
+cada foto quando ela pede o arquivo: mudar de modo vale para as próximas, e a
+grade se refazendo não troca a que já veio. Os modos:
+
+- **Modo leve** (`#g-main[data-leve]`, "cpu" ou "rede"). Volta ao teto de 2×
+  (a escada de `D.dpr`) quando há três tarefas longas de 150 ms ou mais em
+  10 s depois da abertura (só no Chrome/Android: o Safari não tem
+  `longtask`), ou quando 4 das últimas 6 miniaturas da tela levaram mais de
+  2,5 s.
+- **Rede muito ruim** (`#g-main[data-rede]`, "conexao" ou "medida"). Entra
+  quando o Chrome anuncia 2G (`navigator.connection.effectiveType`) ou
+  quando 3 das últimas 6 miniaturas da tela levaram mais de 6 s. As próximas
+  miniaturas pedem 1 pixel físico por pixel da tela. Com a tela pronta e o
+  dedo parado, as da tela sobem para a densidade de antes, 2 por vez e antes
+  das passadas. Um buraco na tela cancela as subidas em voo, que voltam para
+  a baixa em cache. Subida acima de 8 s, ou que falha, pausa as subidas por
+  30 s. Três subidas seguidas em menos de 1,5 s tiram a página do modo
+  "medida"; o modo "conexao" sai quando o Chrome anuncia uma rede melhor. No
+  visualizador, a foto abre com 1 pixel por pixel da tela e sobe para a
+  resolução cheia depois de 700 ms parada nela, ou na hora, ao ampliar; a
+  pré-carga é só da seguinte.
 
 ### Ocultar uma foto
 
@@ -2073,7 +2112,7 @@ Search Console → **Remoções** → *Nova solicitação* com a URL da imagem
 
 ### Compartilhar as favoritas
 
-Com o filtro **Favoritas** ligado, o botão **"Compartilhar as favoritas"**
+Com o filtro **Favoritas** ligado, o botão **"Compartilhar"** do topo
 gera `/galeria/<slug>#sel=<id>.<id>…` (até 300 fotos; no celular, pela folha
 do sistema; no computador, copia o link). Quem abre vê só essas fotos, com o
 chip **"Seleção recebida"** (toque para ver todas) e **"Guardar nas minhas

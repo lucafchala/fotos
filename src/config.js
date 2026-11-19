@@ -110,6 +110,10 @@ export const DRIVE_CLICK_BUCKET = { capacity: 1000, perHour: 200 };
 // baixadas — o dia de um evento de 750 pessoas fica em ~45 mil das 100 mil
 // linhas/dia do plano gratuito (TODO.md).
 export const GALERIA_BAIXAR_BUCKET = { capacity: 6000, perHour: 20000 };
+// O vídeo tocado no site (v4.4.0, rota /video/): um balde próprio, com os
+// mesmos números — tocar e pular para o meio do vídeo são pedidos com Range,
+// e um vídeo assistido não pode gastar a ficha de quem quer baixar.
+export const GALERIA_VIDEO_BUCKET = { capacity: 6000, perHour: 20000 };
 // Download sob carga (item 1g): o Google pode recusar o arquivo (403
 // downloadQuotaExceeded/rateLimitExceeded ou 429) quando ele é muito baixado.
 // O proxy tenta UMA vez mais, depois de DOWNLOAD_RETENTATIVA_MS a 2x isso
@@ -490,6 +494,10 @@ export const GALERIA_LARGURAS_GRADE = [200, 300, 400, 500, 600, 700, 800, 1000, 
 // teto em 2× ele pede a de 800–1000 (119–172 KB, de 30 a 50% a menos), e a
 // diferença não aparece num quadradinho desse tamanho. A foto aberta no
 // visualizador NÃO tem teto: lá vale a tela inteira, e o zoom sobe o degrau.
+// v4.4.0: a grade passou a abrir na densidade CHEIA (pedido do dono:
+// qualidade máxima que a tela permite). Este teto virou o "modo leve", que o
+// script da grade só liga se o aparelho travar (tarefas longas seguidas ou
+// miniaturas da tela demorando); a pré-carga do LCP é sempre a cheia.
 //
 // Os degraus existem por causa da pré-carga do LCP: o servidor não sabe o DPR,
 // então diz o fator por `(min-resolution: Xdppx)` no `imagesizes`, e o script
@@ -567,7 +575,7 @@ export const GATE_METODOS = /** @type {const} */ (['noscript', 'turnstile', 'ema
 //     docs/legal, só testes, só CI. Não sobe número.
 // Na dúvida entre dois níveis, o maior: número a mais custa nada, e número a
 // menos esconde do dono que havia algo para ele fazer.
-export const VERSAO = '4.2.0';
+export const VERSAO = '4.4.0';
 
 // ---------------------------------------------------------------------------
 // Busca pelo rosto (v3.2, Amazon Rekognition — ver docs/ROSTO.md)

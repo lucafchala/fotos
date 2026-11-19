@@ -17,7 +17,9 @@
 //    só aparece nas fotos que têm par lá). Android e computador: download
 //    comum. iPhone/iPad: "Salvar no Fotos" (a folha do sistema com o arquivo,
 //    um toque até o app Fotos) e "Baixar arquivo" (vai para o app Arquivos);
-//  - seleção de várias fotos, lembrada no aparelho, e link direto para cada
+//  - favoritas (o coração), lembradas no aparelho, que se baixam ou viram
+//    link juntas (v4.4.0: o antigo modo "Selecionar" foi juntado a elas), e
+//    link direto para cada
 //    foto (?foto=código; o #foto= antigo também abre).
 //
 // As fotos vêm do lh3 do Google (sem chave). Os downloads passam pelo proxy
@@ -25,7 +27,7 @@
 // projeto (ou na do Instagram dele). A chave da Drive API nunca chega a esta
 // página.
 
-import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
+import { escape, jsonParaScript, marcaDoAlbum, baseDaGaleria, enderecoDoEvento, enderecoDoAlbum, safeUrl, formatDatePT, fontFaceCSS, fontFaceAlbumCSS, fontPreloadHTML, photoPreconnectHTML, navegacaoFluidaHTML, socialMetaHTML, ogImageFor, previewDescription, isRestrictedAccess, PERSON_LD } from '../utils.js';
 import { VENDOR } from '../content/vendor.js';
 import { PALETA_ALBUM as P, GALERIA_LARGURAS, GALERIA_LARGURAS_GRADE, MINIATURA_DPR_DEGRAUS, fatorMiniatura, GALERIA_MINIATURA_TENTATIVAS, TURNSTILE_SITE_KEY, AUTOR_PADRAO, EPOCA_CRIADA_MS, NOVAS_SESSAO_MIN } from '../config.js';
 import { ehVideo } from '../drive.js';
@@ -48,6 +50,12 @@ const TEMA_ALBUM = `
       --err-bg:#1a0a0a; --err-border:#2e1a1a; --err-text:#e0a0a0;
       color-scheme:dark;
     }
+    :root:root body,:root:root .pswp__g-legenda,:root:root .pswp__g-legenda .g-leg-autor,:root:root .g-vid-dur,:root:root .g-rem-link,:root:root .pswp__button--g-baixar-grande{font-family:'Open Sans',sans-serif}
+    ::selection{background:var(--accent);color:var(--accent-text)}
+    :root:root .g-dono b,:root:root .g-previa b{color:var(--text-2);border-color:var(--text-dim);letter-spacing:0;text-transform:none;font-size:.75rem}
+    :root:root .g-t .g-nova{letter-spacing:0;text-transform:none;font-size:.75rem;font-weight:600;background:rgba(0,0,0,.7);color:#fff}
+    :root:root .g-t .g-live,:root:root .g-t .g-oc{letter-spacing:0;text-transform:none;font-size:.75rem;font-weight:600}
+    :root:root .g-t.sem-mini::after{letter-spacing:.02em}
     .g-fim{display:flex;flex-direction:column;align-items:center;padding:2.5rem var(--pad) 3rem}
     ${BOTAO_AJUDA_CSS}
     .g-fim a{display:inline-flex;align-items:center;min-height:44px;color:var(--text-muted);font-size:.85rem;text-decoration:underline;text-underline-offset:3px}`;
@@ -330,12 +338,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // (a da tela menos o --pad), então o navegador escolhe no srcset o MESMO
   // degrau que a <img> vai pedir. Só WebP (type): quem não decodifica ignora a
   // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
-  // O teto de densidade das miniaturas (MINIATURA_DPR_TETO) entra aqui por
-  // `min-resolution`, degrau a degrau, com o mesmo fator que o script da grade
-  // calcula com o DPR de verdade (fatorMiniatura): os dois escolhem o mesmo
-  // arquivo, e a pré-carga é a própria foto que a <img> pede.
-  const larguraLinha = 'calc(100vw - 2 * max(12px, 3vw))';
-  const sizesPreload = [...MINIATURA_DPR_DEGRAUS.map(g => `(min-resolution: ${g}dppx) calc((100vw - 2 * max(12px, 3vw)) * ${fatorMiniatura(g)})`), larguraLinha].join(', ');
+  // v4.4.0: a grade abre na densidade CHEIA da tela (o teto de 2× só entra
+  // se o aparelho travar, depois da primeira tela): a pré-carga pede a largura
+  // da linha × o DPR real, o mesmo arquivo que a <img> do script pede.
+  const sizesPreload = 'calc(100vw - 2 * max(12px, 3vw))';
   const lcp = todasFotos[0];
   const preloadLcp = lcp && !ehVideo(lcp) && lcp[1] > 0 && lcp[2] > 0 && lcp[1] / lcp[2] >= 1.36
     ? `<link rel="preload" as="image" type="image/webp" fetchpriority="high" media="(max-width: 430px)" imagesrcset="${escape(GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(lcp[0], x, assina)} ${x}w`).join(', '))}" imagesizes="${escape(sizesPreload)}">`
@@ -461,11 +467,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     ...(marca ? { siteName: marca.siteName } : {}),
   })}
   ${jsonLd ? `<script type="application/ld+json" nonce="${nonce}">${jsonParaScript(jsonLd)}</script>` : ''}
-  ${fontPreloadHTML()}
+  ${marca ? '' : fontPreloadHTML()}
   ${photoPreconnectHTML()}
   ${preloadLcp}
   <style>
-    ${fontFaceCSS()}
+    ${marca ? fontFaceAlbumCSS() : fontFaceCSS()}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg-page:#0a0a0a; --text:#f0ebe5; --text-2:#bbb; --text-muted:#999; --text-dim:#666;
@@ -493,7 +499,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-dono a:hover{color:var(--text)}
     .g-dono b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
     .g-dono .g-lista{margin-left:auto}
-    .g-dono .g-dica-sec{flex-basis:100%;color:var(--text)}
+    .g-dono .g-dica-sec{flex-basis:100%;max-width:60ch;color:var(--text-2);font-size:.8125rem;line-height:1.5}
     .g-dono .g-ano{display:inline-flex;align-items:center;gap:.4rem}
     .g-dono select{min-height:36px;padding:0 .4rem;border-radius:6px;border:1px solid var(--border);background:var(--bg-page);color:var(--text);font:inherit}
     .g-top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg-page) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
@@ -515,17 +521,17 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-ev{display:flex;align-items:center;min-height:44px;padding:0 .9rem;border-radius:10px;color:var(--text-2);font-size:.92rem;text-decoration:none}
     .g-ev[aria-current="page"]{background:var(--accent);color:var(--accent-text);font-weight:600}
     .g-ev-todos{color:var(--text);font-weight:600;border-bottom:1px solid var(--border);border-radius:10px 10px 0 0;margin-bottom:.2rem}
-    .g-ev-ano{display:block;padding:.7rem .9rem .25rem;font-size:.72rem;font-weight:600;letter-spacing:.14em;color:var(--text-muted)}
+    .g-ev-ano{display:block;padding:.7rem .9rem .25rem;font-size:.75rem;font-weight:600;letter-spacing:.02em;color:var(--text-muted)}
     @media (hover:hover){.g-ev:not([aria-current]):hover{background:var(--border);color:var(--text)}.g-ev-seta:hover,.g-ev-menu>summary:hover{border-color:var(--text-muted)}}
     .g-cap-nav.g-cap-fim{border-bottom:0;border-top:1px solid var(--border);margin-top:1.5rem;padding:.6rem var(--pad) 1.5rem}
-    .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;max-width:100%;color:var(--text-2);text-decoration:none}
+    .g-cap-a{display:inline-flex;align-items:center;gap:.3rem;min-height:44px;min-width:44px;max-width:100%;color:var(--text-2);text-decoration:none}
     .g-cap-a:hover{color:var(--text);text-decoration:underline}
     .g-cap-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(60vw,22rem)}
     .g-cap-p{margin-left:auto}
     .g-meta{font-size:.8rem;color:var(--text-muted);margin-top:.15rem}
-    .g-autores{font-size:1.05rem;font-weight:700;color:var(--text);margin-top:.5rem;line-height:1.35}
+    .g-autores{font-size:1.0625rem;font-weight:600;color:var(--text);margin-top:.5rem;line-height:1.35}
     .g-top .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:600}
-    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.75rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+    .g-autores-k{display:inline-block;margin-right:.35rem;font-size:.875rem;font-weight:600;letter-spacing:0;color:var(--accent)}
     .g-acoes{display:flex;flex-wrap:wrap;gap:.5rem}
     .g-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;font:inherit;font-size:.85rem;font-weight:500;min-height:44px;padding:.5rem 1rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);text-decoration:none;cursor:pointer;white-space:nowrap;transition:transform .12s cubic-bezier(.23,1,.32,1),border-color .12s}
     .g-btn:active{transform:scale(.97)}
@@ -540,6 +546,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-chip small{font-size:.75rem;color:var(--text-muted);font-variant-numeric:tabular-nums}
     .g-chip[aria-current="true"],.g-chip[aria-pressed="true"]{background:var(--text);border-color:var(--text);color:var(--bg-page)}
     .g-chip[aria-current="true"] small,.g-chip[aria-pressed="true"] small{color:inherit;opacity:.75}
+    .g-chip-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
     @media (hover:hover){ .g-btn:hover,.g-chip:hover{border-color:var(--text-dim)} }
     .g-previa{margin:.9rem var(--pad) 0;font-size:.78rem;color:var(--text-muted);display:flex;gap:.5rem;align-items:center}
     .g-previa b{font-weight:600;color:var(--accent);letter-spacing:.06em;text-transform:uppercase;font-size:.7rem;border:1px solid var(--accent);border-radius:4px;padding:.1rem .4rem}
@@ -559,16 +566,12 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-sec[hidden]{display:none}
     .g-sec-cab{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0 var(--pad);margin-bottom:.7rem}
     .g-sec-cab.sem-titulo{display:none}
-    .g-modo-sel .g-sec-cab.sem-titulo{display:flex;justify-content:flex-end}
-    .g-sec h2{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);font-weight:600}
-    .g-sec-todas{display:none;font:inherit;font-size:.8rem;font-weight:500;min-height:44px;padding:.4rem .9rem;border-radius:999px;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);cursor:pointer}
-    .g-modo-sel .g-sec-todas{display:inline-flex;align-items:center}
+    .g-sec h2{font-size:.9375rem;letter-spacing:0;color:var(--text-2);font-weight:600}
     .g-grade{padding:0 var(--pad)}
     .g-linha{display:flex;gap:var(--gap);margin-bottom:var(--gap)}
-    /* v3.9.4: linha fora da tela não passa por layout nem pintura (a altura já
-       vem fixa no style). A contenção corta o que vaza da linha: o foco da
-       miniatura fica por dentro. */
-    .g-linha{content-visibility:auto;contain-intrinsic-size:auto 300px}
+    /* v4.4.0: a grade é feita de blocos de altura fixa; só os perto da tela
+       têm miniaturas dentro (ver enche/esvazia). */
+    .g-bloco{contain:layout style}
     .g-t:focus-visible{outline-offset:-3px}
     .g-t{position:relative;flex:none;height:100%;display:block;background:var(--esqueleto);overflow:hidden;border-radius:2px;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
     .g-t img{width:100%;height:100%;display:block;object-fit:cover;opacity:0;transition:opacity .2s ease-out}
@@ -584,22 +587,16 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     @media (max-width:430px){ .g-pre{display:block} }
     .g-pre-linha .g-t{flex:var(--r) 1 0;aspect-ratio:var(--r);height:auto;min-width:0}
     @media (hover:hover){ .g-t:hover img.ok{filter:brightness(1.06)} }
-    .g-t .g-ck{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.25);display:none;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-    .g-modo-sel .g-t .g-ck{display:block}
     .g-fav{position:absolute;left:0;bottom:0;width:44px;height:44px;display:grid;place-items:center;color:#fff;opacity:0;pointer-events:none;transition:opacity .15s ease-out,transform .12s cubic-bezier(.23,1,.32,1)}
     /* O coração é um fundo em CSS, não um <svg> por miniatura: com centenas de
        fotos, eram dois elementos e um innerHTML a mais por foto na carga. */
     .g-fav::before{content:"";width:22px;height:22px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='none' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E") center/contain no-repeat;filter:drop-shadow(0 1px 3px rgba(0,0,0,.65))}
     .g-t.fav .g-fav{opacity:1}
     .g-t.fav .g-fav::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 20.5 10.9 19.5C6.2 15.3 3.5 12.8 3.5 9.7 3.5 7.3 5.4 5.5 7.7 5.5c1.6 0 3.2.8 4.3 2.1 1.1-1.3 2.7-2.1 4.3-2.1 2.3 0 4.2 1.8 4.2 4.2 0 3.1-2.7 5.6-7.4 9.8z' fill='%23ff6b86' stroke='%23ff6b86' stroke-width='2'/%3E%3C/svg%3E")}
-    .g-modo-sel .g-fav{display:none}
     @media (hover:hover){
       .g-t:hover .g-fav,.g-t:focus-visible .g-fav{opacity:1;pointer-events:auto}
       .g-fav:active{transform:scale(.9)}
     }
-    .g-t.sel .g-ck{display:block;background:var(--accent);border-color:var(--accent)}
-    .g-t.sel .g-ck::after{content:"";position:absolute;left:7px;top:3px;width:6px;height:11px;border:solid var(--accent-text);border-width:0 2px 2px 0;transform:rotate(45deg)}
-    .g-t.sel img{opacity:.78}
     .g-t.oculta img.ok{opacity:.3}
     /* Item 1f: vídeo (play + duração) e Live Photo (LIVE) no canto de baixo à
        direita; miniatura que não carregou (HEIC/RAW sem prévia, vídeo ainda
@@ -614,14 +611,10 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-t.sem-mini::after{content:attr(data-ext);position:absolute;inset:0;display:grid;place-items:center;color:var(--text-muted);font-size:.8rem;font-weight:600;letter-spacing:.12em}
     .g-t .g-oc{position:absolute;left:6px;top:6px;padding:.15rem .45rem;border-radius:4px;background:rgba(0,0,0,.7);color:#fff;font-size:.68rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;display:none}
     .g-t.oculta .g-oc{display:block}
-    .g-barra{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:.5rem;padding:.5rem .55rem .5rem 1rem;border-radius:999px;background:var(--bg-card-2);border:1px solid var(--border);box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:.85rem;max-width:calc(100vw - 24px)}
-    .g-barra[hidden]{display:none}
     .g-topo{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));z-index:6;width:44px;height:44px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--border);background:var(--bg-card-2);color:var(--text);cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.3);opacity:0;visibility:hidden;transform:translateY(8px);pointer-events:none;transition:opacity .15s ease-out,transform .15s var(--sai),visibility 0s .15s}
     .g-topo.on{opacity:1;visibility:visible;transform:none;pointer-events:auto;transition-delay:0s}
     .g-topo:active{transform:scale(.95)}
-    .g-com-barra .g-topo{bottom:calc(84px + env(safe-area-inset-bottom))}
     .g-vendo .g-topo{display:none}
-    .g-barra .g-btn{padding:.45rem .8rem}
     .g-bug{padding:.5rem;min-width:44px}
     /* Celular: o Compartilhar vira só ícone (o aria-label diz o que é), para os
        quatro botões caberem numa linha só e as fotos subirem na tela. */
@@ -631,8 +624,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     }
     .g-voltar{display:inline-flex;align-items:center;gap:.25rem;min-height:44px;font-size:.85rem;color:var(--text-muted);text-decoration:none;margin-bottom:.15rem}
     @media (hover:hover){ .g-voltar:hover{color:var(--text)} }
-    .g-barra .g-prim{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
-    #g-barra-n{white-space:nowrap;margin-right:.25rem}
     /* Folha de download: por cima do visualizador (o PhotoSwipe usa z-index 100000). */
     .g-folha{position:fixed;inset:0;z-index:100010;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55);opacity:1;transition:opacity .2s var(--sai),display .2s allow-discrete,overlay .2s allow-discrete}
     .g-folha[hidden]{display:none;opacity:0;transition-duration:.14s}
@@ -665,10 +656,16 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-folha-rod a{font-size:.78rem;color:var(--text-muted)}
     .g-aviso-flut{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:100020;background:#111;color:#f0ebe5;font-size:.82rem;padding:.55rem .9rem;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:none;opacity:0;transform:translateX(-50%) translateY(8px);transition:opacity .2s var(--sai),transform .2s var(--sai)}
     .g-aviso-flut.on{opacity:1;transform:translateX(-50%)}
-    /* Visualizador: legenda e o botão de seleção ligado. */
+    /* Visualizador: legenda. */
     .pswp{--pswp-bg:#000}
     .pswp__g-legenda{position:absolute;left:0;right:0;bottom:0;padding:1.6rem 1rem calc(.9rem + env(safe-area-inset-bottom));text-align:center;font:500 13px/1.4 'Inter',sans-serif;color:#e8e3dd;background:linear-gradient(transparent,rgba(0,0,0,.55));pointer-events:none;transition:opacity .25s}
     .pswp:not(.pswp--ui-visible) .pswp__g-legenda{opacity:0}
+    /* O CSS do PhotoSwipe põe pointer-events:auto em .pswp__hide-on-close com a
+       barra visível: a legenda (que ocupa o rodapé) engoliria os toques nos
+       controles do vídeo. Só o "Pedir remoção" dentro dela é clicável. */
+    .pswp--ui-visible .pswp__g-legenda{pointer-events:none}
+    /* No vídeo, a legenda sobe acima da barra, do tempo e do botão de som. */
+    .g-eh-video .pswp__g-legenda{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
     .g-vid{position:relative;background:#000;overflow:hidden}
     .g-vid img{width:100%;height:100%;object-fit:contain;display:block}
     .g-vid iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
@@ -676,8 +673,26 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-vid-play::before{content:"";margin-left:6px;border-left:24px solid #fff;border-top:15px solid transparent;border-bottom:15px solid transparent}
     .g-vid-dur{position:absolute;left:10px;bottom:10px;padding:.18rem .55rem;border-radius:999px;background:rgba(0,0,0,.65);color:#fff;font:600 12px/1.4 'Inter',sans-serif;font-variant-numeric:tabular-nums}
     .g-vid.sem-mini{background:#161616}
+    .g-reel .g-vid-tela{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;display:block;cursor:pointer}
+    .g-vid-ico{position:absolute;left:50%;top:50%;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;background:rgba(0,0,0,.45);pointer-events:none;opacity:0;transform:scale(.9);transition:opacity .18s ease,transform .18s ease}
+    .g-vid-ico::before{content:"";position:absolute;left:33px;top:24px;border-left:28px solid #fff;border-top:18px solid transparent;border-bottom:18px solid transparent}
+    .g-reel.pausado .g-vid-ico{opacity:1;transform:none}
+    .g-reel.pisca:not(.pausado) .g-vid-ico{animation:g-vid-some .5s ease forwards}
+    .g-reel.pisca:not(.pausado) .g-vid-ico::before{left:28px;top:26px;width:8px;height:32px;border:0;background:#fff;box-shadow:20px 0 0 #fff}
+    @keyframes g-vid-some{from{opacity:1;transform:none}to{opacity:0;transform:scale(1.15)}}
+    .g-reel.espera::after{content:"";position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;animation:g-gira .8s linear infinite;pointer-events:none}
+    @keyframes g-gira{to{transform:rotate(360deg)}}
+    .g-vid-som{position:absolute;right:12px;bottom:calc(30px + env(safe-area-inset-bottom));width:44px;height:44px;border-radius:50%;border:0;padding:0;background:rgba(0,0,0,.55);color:#fff;cursor:pointer;display:grid;place-items:center}
+    .g-vid-som::before{content:"";width:20px;height:20px;background:currentColor;-webkit-mask:var(--g-som) center/contain no-repeat;mask:var(--g-som) center/contain no-repeat}
+    .g-vid-som{--g-som:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z'/%3E%3C/svg%3E")}
+    .g-vid-som.mudo{--g-som:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 9v6h4l5 5V4L7 9H3zm13.6 3 2.7-2.7-1.4-1.4-2.7 2.7-2.7-2.7-1.4 1.4 2.7 2.7-2.7 2.7 1.4 1.4 2.7-2.7 2.7 2.7 1.4-1.4z'/%3E%3C/svg%3E")}
+    .g-vid-som:focus-visible,.g-vid-barra:focus-visible{outline:2px solid #fff;outline-offset:2px}
+    .g-vid-barra{position:absolute;left:0;right:0;bottom:env(safe-area-inset-bottom);height:24px;cursor:pointer;touch-action:none;display:flex;align-items:flex-end}
+    .g-vid-barra::before{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.3)}
+    .g-vid-prog{position:relative;display:block;width:100%;height:3px;background:#fff;transform-origin:0 50%;transform:scaleX(0)}
+    .g-reel.arrasta .g-vid-barra::before,.g-reel.arrasta .g-vid-prog,.g-vid-barra:hover .g-vid-prog,.g-vid-barra:hover::before{height:6px}
+    .g-vid-resta{position:absolute;left:12px;bottom:calc(36px + env(safe-area-inset-bottom));padding:.18rem .55rem;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font:600 12px/1.4 'Inter',sans-serif;font-variant-numeric:tabular-nums;pointer-events:none}
     .g-eh-video .pswp__button--zoom{display:none}
-    .pswp__button--g-sel.on .pswp__icn{fill:#c0a060}
     .pswp__button--g-fav.on .pswp__icn{fill:#ff6b86}
     .pswp__button--g-ocultar.on .pswp__icn{fill:#ff8a65}
     .pswp__button--g-capa.on .pswp__icn{fill:#f9de4b}
@@ -723,7 +738,11 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-rem-ok p.sub{font-size:.8rem;color:var(--text-muted)}
     ${HONEYPOT_CSS}
     @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
       .g-t img,.g-fav,.g-btn,.g-chip,.g-op{transition:none}
+      .g-vid-ico{transition:none}
+      .g-reel.pisca:not(.pausado) .g-vid-ico{animation:none;opacity:0}
+      .g-reel.espera::after{animation-duration:2.4s}
       .g-topo,.g-folha-c,.g-aviso-flut{transition:opacity .1s linear;transform:none}
       .g-topo.on{transform:none}
       .g-aviso-flut{transform:translateX(-50%)}
@@ -759,7 +778,6 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
         ${nomesDosAutores.length && total ? `<p class="g-autores"><span class="g-autores-k">Fotos de</span> ${escape(listaComE(nomesDosAutores))}</p>` : ''}
       </div>
       <div class="g-acoes">
-        ${listagem && total ? '<button type="button" class="g-btn" id="g-sel" aria-pressed="false">Selecionar</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn g-prim" data-acao="baixar-tudo">Baixar tudo</button>' : ''}
         ${listagem && total ? '<button type="button" class="g-btn" data-acao="compartilhar" aria-label="Compartilhar a página do projeto"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg><span>Compartilhar</span></button>' : ''}
 ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? Fale com a gente" aria-label="Reportar um problema na galeria"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.9 1.9M16 2l-1.9 1.9M9 7.1V6a3 3 0 016 0v1.1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6zM12 20v-9M6.5 13H2M22 13h-4.5M6 7.6C4.1 7.4 3 5.9 3 4M18 7.6c1.9-.2 3-1.7 3-3.6M6 17.4C4.1 17.6 3 19.1 3 21M18 17.4c1.9.2 3 1.7 3 3.6"/></svg></a>`}
@@ -780,12 +798,6 @@ ${marca ? '' : `<a class="g-btn g-bug" href="/suporte" title="Algo deu errado? F
   ${marca ? `<footer class="g-fim"><div class="aj-rodape">${botaoDeAjudaHTML(base)}</div><a href="https://fotos.lucafchala.com/suporte">Algo deu errado? Fale com a gente</a></footer>` : ''}
   <noscript><p class="g-aviso">A galeria precisa de JavaScript. ${drive ? `<a href="${escape(drive)}" rel="nofollow">Abrir a pasta no Drive</a>.` : ''}</p></noscript>
   <button type="button" class="g-topo" id="g-topo" data-acao="topo" aria-label="Voltar ao topo"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path d="M12 5.5 5.5 12l1.4 1.4 4.1-4.1V19h2V9.3l4.1 4.1 1.4-1.4z" fill="currentColor"/></svg></button>
-  <div class="g-barra" id="g-barra" hidden>
-    <span id="g-barra-n" aria-live="polite">0 selecionadas</span>
-    <button type="button" class="g-btn g-prim" data-acao="baixar-sel">Baixar</button>
-    <button type="button" class="g-btn" data-acao="limpar-sel">Limpar</button>
-    <button type="button" class="g-btn" data-acao="fim-sel">Concluir</button>
-  </div>
   <div class="g-folha" id="g-folha" hidden role="dialog" aria-modal="true" aria-labelledby="g-folha-t">
     <div class="g-folha-c">
       <p class="g-folha-t" id="g-folha-t">Baixar</p>
@@ -924,8 +936,8 @@ function fotosDaLinha(rs, W) {
  * Sai só quando a linha é a MESMA em qualquer celular (de 320 a 430 px) e não
  * é a última da seção (a última não estica — a conta seria outra), e só com
  * fotos (vídeo tem miniatura lenta e prioridade baixa). O `sizes` é o tamanho
- * que o script vai calcular, com o mesmo teto de densidade (fatorMiniatura),
- * para os dois pedirem o mesmo arquivo. Nada disso vale fora do celular: o
+ * que o script vai calcular (densidade cheia desde a v4.4.0), para os dois
+ * pedirem o mesmo arquivo. Nada disso vale fora do celular: o
  * CSS esconde (.g-pre).
  * @param {import('../drive.js').ListagemDrive} listagem
  * @param {(id: string) => string} assina
@@ -945,7 +957,8 @@ export function primeiraFileiraHTML(listagem, assina) {
   const jpeg = (/** @type {string} */ u) => u.replace(/^(\/f\/[^/?]+\/\d+)/, '$1j');
   const itens = linha.map((f, k) => {
     const parte = Math.round(rs[k] / soma * 1e4) / 1e4;
-    const sizes = [...MINIATURA_DPR_DEGRAUS.map(g => `(min-resolution: ${g}dppx) calc((${util}) * ${Math.round(parte * fatorMiniatura(g) * 1e4) / 1e4})`), `calc((${util}) * ${parte})`].join(', ');
+    // v4.4.0: densidade cheia, como a grade ao abrir (o modo leve vem depois).
+    const sizes = `calc((${util}) * ${parte})`;
     const webp = GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(f[0], x, assina)} ${x}w`).join(', ');
     const jpg = GALERIA_LARGURAS_GRADE.map(x => `${jpeg(urlFoto(f[0], x, assina))} ${x}w`).join(', ');
     // As fontes levam `media` do celular e a <img> fica com um GIF vazio: o
@@ -1144,6 +1157,7 @@ const SCRIPT = `
   // Dentre elas, as escondidas A PEDIDO de um visitante e ainda sem decisão.
   const pendentes = new Set(D.pendentes || []);
   function pintaOculta(f) {
+    if (!f._el) return;
     const oc = f.el.classList.toggle('oculta', ocultas.has(f.id));
     const pend = oc && pendentes.has(f.id);
     f.el.classList.toggle('pendente', pend);
@@ -1258,7 +1272,7 @@ const SCRIPT = `
   }
 
   // ---- Grade justificada ----
-  /** @type {{ sec: HTMLElement, grade: HTMLElement, lista: Foto[], todas: HTMLButtonElement }[]} */
+  /** @type {{ sec: HTMLElement, grade: HTMLElement, lista: Foto[], }[]} */
   const grades = [];
   function monta() {
     // A fileira do servidor (#253) sai: a grade de verdade entra no lugar,
@@ -1276,13 +1290,6 @@ const SCRIPT = `
         h2.textContent = sec.nome || 'Fotos';
         cab.appendChild(h2);
       }
-      const todas = document.createElement('button');
-      todas.type = 'button';
-      todas.className = 'g-sec-todas';
-      todas.dataset.acao = 'sel-secao';
-      todas.dataset.sec = String(s);
-      todas.textContent = 'Selecionar todas';
-      cab.appendChild(todas);
       secEl.appendChild(cab);
       const grade = document.createElement('div');
       grade.className = 'g-grade';
@@ -1298,70 +1305,98 @@ const SCRIPT = `
         const ehVid = typeof extra === 'number';
         const live = Array.isArray(extra) ? { id: extra[0], nome: extra[1], bytes: extra[2] } : null;
         const nova = !!(f[10] && visitaAnt && D.cr0 + f[10] * 60000 > visitaAnt);
-        const a = document.createElement('a');
-        a.className = 'g-t' + (ehVid ? ' g-video' : '') + (nova ? ' nova' : '');
-        a.href = '?foto=' + codigoDe(f[0]);
-        a.dataset.i = String(i);
-        a.dataset.ext = extDoNome(f[3]).toUpperCase();
-        a.setAttribute('aria-label', (ehVid ? 'Vídeo ' : live ? 'Live Photo ' : 'Foto ') + semExt(f[3]) + (nova ? ', nova' : ''));
-        const img = document.createElement('img');
-        img.alt = altDe(i, ehVid);
-        img.decoding = 'async';
-        // Preguiçosa por padrão; a primeira diagramação torna "eager" só o que
-        // cai na primeira tela (ver dimensiona).
-        img.loading = 'lazy';
-        const ck = document.createElement('span');
-        ck.className = 'g-ck';
-        ck.setAttribute('aria-hidden', 'true');
-        const fv = document.createElement('span');
-        fv.className = 'g-fav';
-        fv.setAttribute('aria-hidden', 'true');
-        fv.title = 'Favoritar (tecla F)';
-        a.appendChild(img);
-        a.appendChild(ck);
-        a.appendChild(fv);
-        if (ehVid || live) {
-          const sel = document.createElement('span');
-          sel.className = ehVid ? 'g-play' : 'g-live';
-          sel.setAttribute('aria-hidden', 'true');
-          sel.textContent = ehVid ? (extra > 0 ? fmtDur(extra) : '') : 'LIVE';
-          a.appendChild(sel);
-        }
-        if (nova) {
-          const nv = document.createElement('span');
-          nv.className = 'g-nova';
-          nv.setAttribute('aria-hidden', 'true');
-          nv.textContent = 'nova';
-          a.appendChild(nv);
-        }
-        if (D.dono) {
-          const oc = document.createElement('span');
-          oc.className = 'g-oc';
-          oc.textContent = 'Oculta';
-          a.appendChild(oc);
-        }
         /** @type {Foto} */
-        const foto = { id: f[0], w: f[1], h: f[2], nome: f[3], bytes: f[4], redes: f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null, autor: f[7] || 0, cauda: f[8] || '', s: s, el: a, img: img, estimada: !(f[1] > 0 && f[2] > 0), alt: img.alt, video: ehVid, dur: ehVid ? extra : 0, live: live, nova: nova };
-        if (D.dono) pintaOculta(foto);
-        img.addEventListener('load', function () { carregou(foto); });
-        // Miniatura que falhou (o site ou o Google recusou na rajada do
-        // lançamento) tenta de novo, com espera crescente e sorteada, antes de
-        // virar o quadro vazio: a falha não fica em cache, então pedir de novo
-        // resolve. Sem isto, só recarregar a página trazia a foto.
-        img.addEventListener('error', function () {
-          var n = Number(img.getAttribute('data-t') || 0);
-          if (n >= D.tentativasMini) { img.classList.add('ok'); a.classList.add('sem-mini'); return; }
-          img.setAttribute('data-t', String(n + 1));
-          setTimeout(function () {
-            var conjunto = img.getAttribute('srcset'), unica = img.getAttribute('src');
-            if (conjunto) { img.removeAttribute('srcset'); img.setAttribute('srcset', conjunto); }
-            if (unica) { img.removeAttribute('src'); img.setAttribute('src', unica); }
-          }, (n + 1) * 2000 + Math.random() * 2000);
-        });
+        const foto = /** @type {Foto} */ (/** @type {unknown} */ (new FotoObj(f, s, i, ehVid, extra, live, nova)));
         fotos.push(foto);
         lista.push(foto);
       });
-      grades.push({ sec: secEl, grade: grade, lista: lista, todas: todas });
+      grades.push({ sec: secEl, grade: grade, lista: lista });
+    });
+  }
+
+  // v4.4.0: o quadradinho (o <a> com a <img>) só nasce quando a foto chega
+  // perto da tela (ver enche) ou quando alguém pede f.el / f.img (visualizador,
+  // folha de download). Criar os mil e tantos de uma vez na abertura custava
+  // ~0,25 s no celular, e cada um ainda pesava no estilo e na pintura.
+  // v4.4.0: um construtor (e não Object.create + Object.assign com um objeto
+  // de passagem por foto) e o alt calculado só quando alguém pede: com 3.000
+  // fotos, eram ~40 ms da abertura no celular.
+  /** @this {any} */
+  function FotoObj(f, s, i, ehVid, extra, live, nova) {
+    this.id = f[0]; this.w = f[1]; this.h = f[2]; this.nome = f[3]; this.bytes = f[4];
+    this.redes = f[5] >= 0 ? { bytes: f[5], nome: f[6] || f[3] } : null;
+    this.autor = f[7] || 0; this.cauda = f[8] || ''; this.s = s; this.i = i;
+    this.estimada = !(f[1] > 0 && f[2] > 0); this.video = ehVid; this.dur = ehVid ? extra : 0;
+    this.live = live; this.nova = nova; this._el = null; this._img = null; this._passada = false; this._t = 0;
+    this._w = 0; this._fator = 0; this._fatorAntes = 0; this._baixa = false; this._subindo = 0;
+  }
+  const FOTO_PROTO = FotoObj.prototype;
+  Object.defineProperties(FOTO_PROTO, {
+    el: { get: function () { if (!this._el) criaEl(this); return this._el; } },
+    img: { get: function () { if (!this._el) criaEl(this); return this._img; } },
+    alt: { get: function () { return altDe(this.i, this.video); } },
+  });
+  function criaEl(foto) {
+    const i = foto.i;
+    const a = document.createElement('a');
+    a.className = 'g-t' + (foto.video ? ' g-video' : '') + (foto.nova ? ' nova' : '');
+    a.href = '?foto=' + codigoDe(foto.id);
+    a.dataset.i = String(i);
+    a.dataset.ext = extDoNome(foto.nome).toUpperCase();
+    const img = document.createElement('img');
+    img.alt = foto.alt;
+    img.decoding = 'async';
+    // Preguiçosa por padrão; a diagramação torna "eager" só o que cai na
+    // primeira tela (ver dimensiona).
+    img.loading = 'lazy';
+    const fv = document.createElement('span');
+    fv.className = 'g-fav';
+    fv.setAttribute('aria-hidden', 'true');
+    fv.title = 'Favoritar (tecla F)';
+    a.appendChild(img);
+    a.appendChild(fv);
+    if (foto.video || foto.live) {
+      const sel = document.createElement('span');
+      sel.className = foto.video ? 'g-play' : 'g-live';
+      sel.setAttribute('aria-hidden', 'true');
+      sel.textContent = foto.video ? (foto.dur > 0 ? fmtDur(foto.dur) : '') : 'LIVE';
+      a.appendChild(sel);
+    }
+    if (foto.nova) {
+      const nv = document.createElement('span');
+      nv.className = 'g-nova';
+      nv.setAttribute('aria-hidden', 'true');
+      nv.textContent = 'nova';
+      a.appendChild(nv);
+    }
+    if (D.dono) {
+      const oc = document.createElement('span');
+      oc.className = 'g-oc';
+      oc.textContent = 'Oculta';
+      a.appendChild(oc);
+    }
+    foto._el = a;
+    foto._img = img;
+    pintaFav(foto);
+    if (D.dono) pintaOculta(foto);
+    img.addEventListener('load', function () { carregou(foto); });
+    // Miniatura que falhou (o site ou o Google recusou na rajada do
+    // lançamento) tenta de novo, com espera crescente e sorteada, antes de
+    // virar o quadro vazio: a falha não fica em cache, então pedir de novo
+    // resolve. Sem isto, só recarregar a página trazia a foto.
+    img.addEventListener('error', function () {
+      // Cancelada ao esvaziar o bloco (ver esvazia): não é falha.
+      if (!img.getAttribute('src')) return;
+      // A maior (rede ruim) falhou: volta para a baixa, que está em cache.
+      if (foto._subindo) { desceDeVolta(foto); subirDepois = performance.now() + 30000; return; }
+      var n = Number(img.getAttribute('data-t') || 0);
+      if (n >= D.tentativasMini) { img.classList.add('ok'); a.classList.add('sem-mini'); agendaFila(); return; }
+      img.setAttribute('data-t', String(n + 1));
+      setTimeout(function () {
+        var conjunto = img.getAttribute('srcset'), unica = img.getAttribute('src');
+        if (conjunto) { img.removeAttribute('srcset'); img.setAttribute('srcset', conjunto); }
+        if (unica) { img.removeAttribute('src'); img.setAttribute('src', unica); }
+      }, (n + 1) * 2000 + Math.random() * 2000);
     });
   }
 
@@ -1383,12 +1418,260 @@ const SCRIPT = `
     grades.forEach(function (g) { diagrama(g, W, alvo, gap, pos); });
   }
 
+  // v4.4.0: a grade vira blocos de linhas com altura fixa. Só os blocos perto
+  // da tela têm as miniaturas dentro (enche); os outros são caixas vazias da
+  // mesma altura, então a rolagem e a barra lateral não mudam. Um vigia só,
+  // olhando dezenas de blocos (não milhares de fotos), enche e esvazia.
+  const ALTURA_BLOCO = 800;
+  /** @type {Map<Element, {linhas: {h: number, topo: number, primeira: boolean, itens: {f: Foto, w: number}[]}[], gap: number, cheio: boolean}>} */
+  const blocos = new Map();
+  /** @type {WeakMap<Foto, Element>} */
+  const blocoDaFoto = new WeakMap();
+  const vigiaBlocos = typeof IntersectionObserver === 'function' ? new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting) enche(e.target);
+      else esvazia(e.target);
+    });
+  }, { rootMargin: '1000px 0px' }) : null;
+  function enche(el) {
+    const b = blocos.get(el);
+    if (!b || b.cheio) return;
+    b.cheio = true;
+    cheios.add(el);
+    const frag = document.createDocumentFragment();
+    b.linhas.forEach(function (l) {
+      const row = document.createElement('div');
+      row.className = 'g-linha';
+      row.style.height = l.h + 'px';
+      l.itens.forEach(function (it) {
+        const a = it.f.el;
+        a.style.width = it.w + 'px';
+        dimensiona(it.f, it.w, l.topo, l.primeira);
+        row.appendChild(a);
+      });
+      frag.appendChild(row);
+    });
+    el.replaceChildren(frag);
+  }
+  function esvazia(el) {
+    const b = blocos.get(el);
+    if (!b || !b.cheio) return;
+    // Quem tem o foco (teclado) ou está no visualizador fica.
+    if (el.contains(document.activeElement) || vendo) return;
+    b.cheio = false;
+    cheios.delete(el);
+    cadaFotoDoBloco(el, function (f) {
+      const img = f._img;
+      if (f._subindo) desceDeVolta(f);
+      if (!img || img.classList.contains('ok') || f._passada) return;
+      f._fator = 0;
+      if (img.getAttribute('srcset')) {
+        img.removeAttribute('srcset');
+        img.removeAttribute('src');
+        img.removeAttribute('fetchpriority');
+      }
+      f._passada = true;
+      passadas.push(f);
+      // Só as 150 mais recentes (o que o navegador já baixava sozinho antes):
+      // um arremesso até o fim de 3.000 fotos não vira 500 MB de dados.
+      if (passadas.length > 150) /** @type {Foto} */ (passadas.shift())._passada = false;
+    });
+    el.replaceChildren();
+  }
+  // O visualizador e o foco precisam do quadradinho no lugar (a animação de
+  // abrir e fechar parte dele).
+  function garanteNaGrade(f) {
+    // A foto pode estar num bloco que ainda não nasceu (ver completa).
+    const antes = blocoDaFoto.get(f);
+    if (aCompletar.length && !(antes && antes.isConnected)) completaTudo(null);
+    const el = blocoDaFoto.get(f);
+    if (el) enche(el);
+  }
+
+  // v4.4.0: rolagem rápida, a tela primeiro. Fora da primeira tela da página,
+  // a miniatura não pede o arquivo sozinha: um segundo vigia (margem zero)
+  // sabe quais blocos estão NA tela, e só eles pedem já, com prioridade alta.
+  // Os da margem do vigia grande pedem quando a tela inteira saiu do
+  // esqueleto. Bloco que esvazia cancela a miniatura que ainda não chegou (o
+  // navegador continuava baixando as que o dedo já tinha passado, na frente
+  // das que se vê: ~3,9 s para a tela aparecer depois de rolar até o fim); ela
+  // vai para "passadas" (também as que o dedo passou sem pedir), baixadas em
+  // segundo plano (4 por vez, a mais perto primeiro) com a rolagem parada e a
+  // tela pronta. No arremesso (acima de 6.000 px/s) nem a tela pede.
+  /** @type {Set<Element>} */
+  const blocosNaTela = new Set();
+  /** @type {Set<Element>} */
+  const cheios = new Set();
+  /** @type {Foto[]} */
+  const passadas = [];
+  /** @type {Foto[]} */
+  let emVoo = [];
+  /** @type {Foto[]} */
+  let subindo = [];
+  let filaMarcada = 0;
+  let ultimaRolagem = 0;
+  const vigiaTela = vigiaBlocos ? new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting) blocosNaTela.add(e.target);
+      else blocosNaTela.delete(e.target);
+    });
+    agendaFila();
+  }) : null;
+  // Velocidade da rolagem (px/s, suavizada): no arremesso a tela de agora some
+  // no próximo quadro, então não vale pedir as miniaturas dela.
+  let velocidade = 0;
+  let yAnt = window.scrollY;
+  window.addEventListener('scroll', function () {
+    const t = performance.now();
+    const dt = Math.max(8, t - ultimaRolagem);
+    velocidade = dt > 200 ? 0 : velocidade * 0.5 + Math.abs(window.scrollY - yAnt) / dt * 500;
+    yAnt = window.scrollY;
+    ultimaRolagem = t;
+  }, { passive: true });
+  function agendaFila() {
+    if (!filaMarcada) filaMarcada = requestAnimationFrame(function () { filaMarcada = 0; anda(); });
+  }
+  /** @param {Element} el @param {(f: Foto) => void} fn */
+  function cadaFotoDoBloco(el, fn) {
+    const b = blocos.get(el);
+    if (b) b.linhas.forEach(function (l) { l.itens.forEach(function (it) { fn(it.f); }); });
+  }
+  const pronta = function (f) { return !f._img || f._img.classList.contains('ok'); };
+  function anda() {
+    if (velocidade > 6000 && performance.now() - ultimaRolagem < 150) { setTimeout(agendaFila, 120); return; }
+    let falta = 0;
+    blocosNaTela.forEach(function (el) {
+      enche(el);
+      cadaFotoDoBloco(el, function (f) {
+        if (!f.img.srcset) {
+          f.img.loading = 'eager';
+          if (!f.video) f.img.setAttribute('fetchpriority', 'high');
+          f._t = performance.now();
+          poeSrc(f);
+        }
+        if (!pronta(f)) falta++;
+      });
+    });
+    // Rede ruim: buraco na tela vem antes de qualquer subida de resolução.
+    if (falta) { subindo.slice().forEach(desceDeVolta); return; }
+    cheios.forEach(function (el) {
+      if (!blocosNaTela.has(el)) cadaFotoDoBloco(el, function (f) { if (!f.img.srcset) poeSrc(f); });
+    });
+    // As subidas e as passadas, só com o dedo parado (senão a próxima tela
+    // espera por elas). As subidas (da tela) antes das passadas.
+    emVoo = emVoo.filter(function (f) { return !pronta(f) && !!f.img.getAttribute('src'); });
+    subindo = subindo.filter(function (f) {
+      if (f._subindo && performance.now() - f._subindo > 15000) { desceDeVolta(f); subirDepois = performance.now() + 30000; }
+      return !!f._subindo;
+    });
+    /** @type {Foto[]} */
+    const aSubir = [];
+    if (performance.now() >= subirDepois) {
+      blocosNaTela.forEach(function (el) {
+        cadaFotoDoBloco(el, function (f) { if (f._baixa && !f._subindo && pronta(f) && f._img && f._img.isConnected) aSubir.push(f); });
+      });
+    }
+    if (!passadas.length && !aSubir.length) return;
+    if (performance.now() - ultimaRolagem < 400) { setTimeout(agendaFila, 450); return; }
+    while (subindo.length < 2 && aSubir.length) sobe(/** @type {Foto} */ (aSubir.shift()));
+    if (subindo.length) return;
+    while (emVoo.length < (redeRuim ? 2 : 4) && passadas.length) {
+      const f = /** @type {Foto} */ (passadas.pop());
+      if (!f._passada || f.img.srcset) continue;
+      f.img.loading = 'eager';
+      f.img.setAttribute('fetchpriority', 'low');
+      poeSrc(f);
+      emVoo.push(f);
+    }
+  }
+
+  // v4.4.0: a abertura só cria os blocos das primeiras telas. O resto fica
+  // num calço com a mesma altura (e o mesmo data-n), trocado pelos blocos de
+  // verdade no tempo ocioso: com 3.000 fotos, criar e vigiar os ~750 blocos de
+  // uma vez era a maior parte da tarefa longa de abrir no celular.
+  // Safari não tem requestIdleCallback: um quadro de ~12 ms depois de 50 ms.
+  const quandoOcioso = window.requestIdleCallback || function (fn) {
+    return setTimeout(function () {
+      const t = performance.now();
+      fn({ didTimeout: false, timeRemaining: function () { return Math.max(0, 12 - (performance.now() - t)); } });
+    }, 50);
+  };
+  /** @type {{calco: Element, resto: {linhas: any[], h: number, n: number}[], gap: number}[]} */
+  let aCompletar = [];
+  let ociosoMarcado = false;
+  function criaBloco(d, gap) {
+    const el = document.createElement('div');
+    el.className = 'g-bloco';
+    el.style.height = d.h + 'px';
+    // Quantas fotos o bloco tem, cheio ou não (leitura de testes e depuração).
+    el.dataset.n = String(d.n);
+    blocos.set(el, { linhas: d.linhas, gap: gap, cheio: false });
+    d.linhas.forEach(function (l) { l.itens.forEach(function (it) { blocoDaFoto.set(it.f, el); }); });
+    if (vigiaBlocos) vigiaBlocos.observe(el);
+    if (vigiaTela) vigiaTela.observe(el);
+    return el;
+  }
+  // Põe os blocos de verdade antes do calço, que encolhe na mesma medida (a
+  // página não muda de altura). Sem prazo, vai até o fim (garanteNaGrade).
+  /** @param {IdleDeadline | null} prazo */
+  function completa(p, prazo) {
+    if (!p.calco.isConnected) { p.resto = []; return; }
+    const frag = document.createDocumentFragment();
+    let h = 0, n = 0;
+    // Pelo menos um por vez: o ocioso que vence pelo timeout chega sem tempo.
+    while (p.resto.length && (!prazo || !n || prazo.timeRemaining() > 3)) {
+      const d = p.resto.shift();
+      frag.appendChild(criaBloco(d, p.gap));
+      h += d.h;
+      n += d.n;
+    }
+    p.calco.before(frag);
+    if (!p.resto.length) { p.calco.remove(); return; }
+    p.calco.style.height = (parseFloat(p.calco.style.height) - h) + 'px';
+    p.calco.dataset.n = String(Number(p.calco.dataset.n) - n);
+  }
+  /** @param {IdleDeadline | null} prazo */
+  function completaTudo(prazo) {
+    let feito = false;
+    while (aCompletar.length && (!prazo || !feito || prazo.timeRemaining() > 3)) {
+      feito = true;
+      completa(aCompletar[0], prazo);
+      if (!aCompletar[0].resto.length) aCompletar.shift();
+    }
+    if (aCompletar.length) agendaResto();
+  }
+  function agendaResto() {
+    if (ociosoMarcado) return;
+    ociosoMarcado = true;
+    quandoOcioso(function (prazo) { ociosoMarcado = false; completaTudo(prazo); }, { timeout: 1500 });
+  }
+
   function diagrama(g, W, alvo, gap, pos) {
     if (pos && D.secoes.length > 1) pos.y += 48;
+    g.grade.querySelectorAll('.g-bloco').forEach(function (el) {
+      if (vigiaBlocos) vigiaBlocos.unobserve(el);
+      if (vigiaTela) vigiaTela.unobserve(el);
+      blocosNaTela.delete(el);
+      cheios.delete(el);
+      blocos.delete(el);
+    });
+    aCompletar = aCompletar.filter(function (p) { return !g.grade.contains(p.calco); });
     const mostradas = visiveisDe(g);
     g.sec.hidden = !mostradas.length;
     if (!mostradas.length) { g.grade.replaceChildren(); return; }
-    const frag = document.createDocumentFragment();
+    /** @type {{h: number, topo: number, primeira: boolean, itens: {f: Foto, w: number}[]}[]} */
+    let linhasBloco = [];
+    let alturaBloco = 0;
+    let nBloco = 0;
+    /** @type {{linhas: any[], h: number, n: number}[]} */
+    const descr = [];
+    const fechaBloco = function () {
+      if (!linhasBloco.length) return;
+      descr.push({ linhas: linhasBloco, h: alturaBloco, n: nBloco });
+      linhasBloco = [];
+      alturaBloco = 0;
+      nBloco = 0;
+    };
     let linha = [];
     let soma = 0;
     let altura = 0;
@@ -1398,23 +1681,19 @@ const SCRIPT = `
       const naoEstica = ultima && h > alvo * 1.15;
       if (naoEstica) h = alvo;
       h = Math.max(40, Math.floor(h));
-      const row = document.createElement('div');
-      row.className = 'g-linha';
-      row.style.height = h + 'px';
       let usado = 0;
-      const topo = pos ? pos.y : Infinity;
-      const primeira = !!pos && pos.primeira;
-      linha.forEach(function (f, k) {
+      const itens = linha.map(function (f, k) {
         let w = Math.floor(proporcao(f) * h);
         if (k === linha.length - 1 && !naoEstica) w = Math.max(20, livre - usado);
         usado += w;
-        f.el.style.width = w + 'px';
-        dimensiona(f, w, topo, primeira);
-        row.appendChild(f.el);
+        return { f: f, w: w };
       });
-      frag.appendChild(row);
+      linhasBloco.push({ h: h, topo: pos ? pos.y : Infinity, primeira: !!pos && pos.primeira, itens: itens });
+      alturaBloco += h + gap;
+      nBloco += itens.length;
       altura += h + gap;
       if (pos) { pos.y += h + gap; pos.primeira = false; }
+      if (alturaBloco >= ALTURA_BLOCO) fechaBloco();
       linha = [];
       soma = 0;
     };
@@ -1424,30 +1703,162 @@ const SCRIPT = `
       if (soma * alvo + gap * (linha.length - 1) >= W) fecha(false);
     });
     if (linha.length) fecha(true);
+    fechaBloco();
+    // Já: os blocos até duas telas abaixo da atual (o vigia olha 1.000 px além).
+    const ate = window.scrollY + window.innerHeight * 2 + 1000;
+    let k = 0;
+    while (k < descr.length && (k === 0 || descr[k].linhas[0].topo < ate)) k++;
+    const frag = document.createDocumentFragment();
+    /** @type {Element[]} */
+    const novos = [];
+    for (let j = 0; j < k; j++) { const el = criaBloco(descr[j], gap); frag.appendChild(el); novos.push(el); }
+    if (k < descr.length) {
+      const resto = descr.slice(k);
+      const calco = document.createElement('div');
+      calco.className = 'g-bloco';
+      calco.style.height = resto.reduce(function (s, d) { return s + d.h; }, 0) + 'px';
+      calco.dataset.n = String(resto.reduce(function (s, d) { return s + d.n; }, 0));
+      frag.appendChild(calco);
+      aCompletar.push({ calco: calco, resto: resto, gap: gap });
+      agendaResto();
+    }
     g.grade.replaceChildren(frag);
     g.sec.style.containIntrinsicSize = 'auto ' + Math.ceil(altura + 60) + 'px';
+    // O que cai na primeira tela enche já (sem esperar o vigia): é o LCP.
+    novos.forEach(function (el) {
+      const b = blocos.get(el);
+      if (!vigiaBlocos || (b && b.linhas[0].topo < window.scrollY + window.innerHeight * 1.25)) enche(el);
+    });
   }
 
-  const vigia = typeof IntersectionObserver === 'function' ? new IntersectionObserver(function (es) {
-    es.forEach(function (e) {
-      if (!e.isIntersecting) return;
-      vigia.unobserve(e.target);
-      const f = fotos[Number(e.target.dataset.i)];
-      if (f) poeSrc(f);
-    });
-  }, { rootMargin: '1500px 0px' }) : null;
   // A miniatura pede ao Google a menor largura que cobre o quadradinho em
   // pixels físicos: o navegador escolhe pelo srcset + sizes.
   // Teto de densidade das miniaturas (MINIATURA_DPR_TETO, config.js): o
   // "sizes" encolhe pelo fator do degrau do DPR, e o navegador escolhe a
   // miniatura como se a tela fosse no máximo 2×. A escada vem do servidor
   // (D.dpr) para ser a MESMA da pré-carga do LCP.
-  const fatorDpr = (function () {
+  // v4.4.0: qualidade máxima que a tela permite, sempre; o teto só volta se
+  // o aparelho travar (ficaLeve): tarefas longas seguidas ou miniaturas da
+  // tela demorando. Vale para as próximas miniaturas; as já baixadas ficam.
+  const fatorLeve = (function () {
     const dpr = window.devicePixelRatio || 1;
     const escada = DX.dpr || [];
     for (let i = 0; i < escada.length; i++) if (dpr >= escada[i][0]) return escada[i][1];
     return 1;
   })();
+  let fatorDpr = 1;
+  /** @param {string} motivo */
+  function ficaLeve(motivo) {
+    if (main.dataset.leve || fatorLeve === 1) return;
+    main.dataset.leve = motivo;
+    if (!redeRuim) fatorDpr = fatorLeve;
+  }
+  // v4.4.0: rede MUITO ruim (2G, ou 3 das últimas 6 miniaturas da tela
+  // levando mais de 6 s). A tela aparece primeiro: as próximas miniaturas
+  // pedem 1 pixel físico por pixel da tela (fatorMinimo), e só depois, com a
+  // tela inteira pronta e o dedo parado, as da tela sobem para a densidade de
+  // antes (cheia, ou a do modo leve), 2 por vez. A foto baixa continua à vista
+  // enquanto a maior chega (o navegador só troca quando ela termina). Buraco
+  // na tela cancela as subidas em voo. Subida que leva mais de 8 s (ou falha)
+  // pausa as subidas por 30 s; 3 subidas seguidas em menos de 1,5 s tiram a
+  // página do modo (a rede melhorou).
+  const fatorMinimo = (function () {
+    const dpr = window.devicePixelRatio || 1;
+    return dpr > 1 ? Math.round(1e4 / dpr) / 1e4 : 1;
+  })();
+  let redeRuim = false;
+  let subirDepois = 0;
+  let subidasRapidas = 0;
+  /** @param {string} motivo */
+  function entraRedeRuim(motivo) {
+    if (redeRuim) return;
+    redeRuim = true;
+    main.dataset.rede = motivo;
+    fatorDpr = Math.min(fatorDpr, fatorMinimo);
+    subidasRapidas = 0;
+  }
+  function saiDaRedeRuim() {
+    if (!redeRuim) return;
+    redeRuim = false;
+    delete main.dataset.rede;
+    fatorDpr = main.dataset.leve ? fatorLeve : 1;
+  }
+  const fatorSubida = function () { return main.dataset.leve ? fatorLeve : 1; };
+  // Largura que o navegador escolhe no srcset da grade para um fator.
+  /** @param {Foto} f @param {number} k */
+  const larguraNaGrade = function (f, k) {
+    const precisa = f._w * k * (window.devicePixelRatio || 1);
+    for (let i = 0; i < D.grade.length; i++) if (D.grade[i] >= precisa) return D.grade[i];
+    return D.grade[D.grade.length - 1];
+  };
+  /** @param {Foto} f */
+  function sobe(f) {
+    f._baixa = false;
+    const alvo = fatorSubida();
+    if (larguraNaGrade(f, alvo) <= larguraNaGrade(f, f._fator)) return;
+    f._fatorAntes = f._fator;
+    f._fator = alvo;
+    f._subindo = performance.now();
+    subindo.push(f);
+    f.img.sizes = tamanhoNaGrade(f);
+  }
+  // Volta para a baixa (já em cache): o navegador larga o pedido da maior.
+  /** @param {Foto} f */
+  function desceDeVolta(f) {
+    if (!f._subindo) return;
+    f._subindo = 0;
+    f._fator = f._fatorAntes;
+    f._baixa = true;
+    subindo = subindo.filter(function (x) { return x !== f; });
+    f.img.sizes = tamanhoNaGrade(f);
+  }
+  /** @param {number} ms */
+  function mediuSubida(ms) {
+    if (ms > 8000) { subirDepois = performance.now() + 30000; subidasRapidas = 0; return; }
+    subidasRapidas = ms < 1500 ? subidasRapidas + 1 : 0;
+    if (subidasRapidas >= 3 && main.dataset.rede === 'medida') saiDaRedeRuim();
+  }
+  const conexao = /** @type {any} */ (navigator).connection;
+  const conexaoRuim = function () { return !!conexao && /^(slow-)?2g$/.test(String(conexao.effectiveType || '')); };
+  if (conexaoRuim()) entraRedeRuim('conexao');
+  if (conexao && conexao.addEventListener) {
+    conexao.addEventListener('change', function () {
+      if (conexaoRuim()) entraRedeRuim('conexao');
+      else if (main.dataset.rede === 'conexao') { saiDaRedeRuim(); agendaFila(); }
+    });
+  }
+  // Travando (1): três tarefas longas (150 ms ou mais) em 10 s, depois da
+  // abertura. Só no Chrome/Android: o Safari não tem "longtask".
+  try {
+    /** @type {number[]} */
+    const longas = [];
+    new PerformanceObserver(function (l) {
+      l.getEntries().forEach(function (e) {
+        if (e.startTime < 4000 || e.duration < 150) return;
+        longas.push(e.startTime);
+        while (longas[0] < e.startTime - 10000) longas.shift();
+        if (longas.length >= 3) ficaLeve('cpu');
+      });
+    }).observe({ type: 'longtask' });
+  } catch (e) { /* sem longtask */ }
+  // Travando (2): das últimas 6 miniaturas pedidas para a tela, 4 levaram
+  // mais de 2,5 s (rede que não dá conta da densidade cheia).
+  /** @type {boolean[]} */
+  const lentas = [];
+  /** @type {boolean[]} */
+  const lentissimas = [];
+  /** @param {Foto} f */
+  function mediuTela(f) {
+    if (!f._t) return;
+    const ms = performance.now() - f._t;
+    lentas.push(ms > 2500);
+    lentissimas.push(ms > 6000);
+    f._t = 0;
+    if (lentas.length > 6) lentas.shift();
+    if (lentissimas.length > 6) lentissimas.shift();
+    if (lentissimas.filter(Boolean).length >= 3) entraRedeRuim('medida');
+    else if (lentas.filter(Boolean).length >= 4) ficaLeve('rede');
+  }
   function dimensiona(f, w, topo, primeiraLinha) {
     if (!f.img.srcset) {
       // Só na primeira vez (antes do src): o que cai na primeira tela baixa já,
@@ -1465,13 +1876,28 @@ const SCRIPT = `
       // v3.9.4: só a primeira tela ganha o srcset já. O resto ganha quando
       // chega perto (ver poeSrc): montar as ~13 URLs de cada uma das mil e
       // tantas miniaturas na abertura travava o celular por meio segundo.
-      if (perto || !vigia) poeSrc(f);
-      else if (!f.vigiada) { f.vigiada = true; vigia.observe(f.el); }
+      // v4.4.0: o bloco só enche perto da tela, então o srcset entra já
+      // no topo da página; no resto, quem decide a ordem é a fila (anda).
+      if (perto) f._t = performance.now();
+      if (perto || !vigiaTela) poeSrc(f);
+      else agendaFila();
     }
-    f.img.sizes = (fatorDpr === 1 ? w : Math.round(w * fatorDpr * 100) / 100) + 'px';
+    f._w = w;
+    f.img.sizes = tamanhoNaGrade(f);
+  }
+  // O fator fica na foto quando ela pede o arquivo: mudar de modo vale para
+  // as próximas, e a grade se refazendo não troca a que já veio.
+  /** @param {Foto} f */
+  function tamanhoNaGrade(f) {
+    const k = f._fator || fatorDpr;
+    return (k === 1 ? f._w : Math.round(f._w * k * 100) / 100) + 'px';
   }
   function poeSrc(f) {
     if (f.img.srcset) return;
+    f._passada = false;
+    f._fator = fatorDpr;
+    f._baixa = redeRuim && fatorDpr < fatorSubida();
+    if (f._w) f.img.sizes = tamanhoNaGrade(f);
     f.img.srcset = D.grade.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', ');
     f.img.src = lh3(f.id, 400);
   }
@@ -1484,6 +1910,14 @@ const SCRIPT = `
 
   function carregou(f) {
     f.img.classList.add('ok');
+    if (f._subindo) {
+      const ms = performance.now() - f._subindo;
+      f._subindo = 0;
+      subindo = subindo.filter(function (x) { return x !== f; });
+      mediuSubida(ms);
+    }
+    mediuTela(f);
+    agendaFila();
     // Sem dimensões no Drive (alguns HEIC/RAW): a miniatura dá a proporção, e a
     // grade se refaz uma vez. O tamanho real fica estimado até o visualizador.
     if (f.estimada && f.img.naturalWidth && !f.w) {
@@ -1494,10 +1928,12 @@ const SCRIPT = `
     }
   }
 
-  // ---- Seleção e favoritas ----
-  // As duas listas ficam só neste aparelho (localStorage), e a página tem de
-  // funcionar com o armazenamento bloqueado.
-  const CHAVE_SEL = 'galeria:sel:' + D.slug;
+  // ---- Favoritas ----
+  // Ficam só neste aparelho (localStorage), e a página tem de funcionar com o
+  // armazenamento bloqueado. Até a 4.1 havia também a "seleção" (✓), uma
+  // segunda marca que confundia; na 4.4.0 ela se juntou às favoritas: o
+  // coração é a única marca, e as favoritas se baixam e se compartilham.
+  const CHAVE_SEL_ANTIGA = 'galeria:sel:' + D.slug;
   const CHAVE_FAV = 'galeria:fav:' + D.slug;
   function leLista(chave) {
     try {
@@ -1510,10 +1946,15 @@ const SCRIPT = `
     try { localStorage.setItem(chave, JSON.stringify(Array.from(conjunto))); } catch (e) { /* idem */ }
   }
   /** @type {Set<string>} */
-  let sel = leLista(CHAVE_SEL);
-  /** @type {Set<string>} */
   const fav = leLista(CHAVE_FAV);
-  let modoSel = false;
+  // A seleção antiga (até a 4.1) vira favorita uma vez, e a chave sai.
+  (function () {
+    const antiga = leLista(CHAVE_SEL_ANTIGA);
+    if (!antiga.size) return;
+    antiga.forEach(function (id) { fav.add(id); });
+    gravaLista(CHAVE_FAV, fav);
+    try { localStorage.removeItem(CHAVE_SEL_ANTIGA); } catch (e) { /* sem armazenamento */ }
+  })();
   let filtroFav = false;
   let filtroNovas = false;
   // Seleção que chegou por link (#sel=id.id.id, #213): a galeria abre só com
@@ -1529,13 +1970,8 @@ const SCRIPT = `
   /** @type {HTMLButtonElement | null} */
   let chipFav = null;
 
-  /** @type {Foto | null} */
-  let ultimoSel = null;
   /** As fotos na ordem em que aparecem agora (todas, ou só as favoritas). */
   let vistas = fotos;
-  const barra = document.getElementById('g-barra');
-  const barraN = document.getElementById('g-barra-n');
-  const botaoSel = document.getElementById('g-sel');
 
   // Filtro por fotógrafo (-1 = todos): combina com as favoritas e com o link.
   let filtroAutor = -1;
@@ -1569,69 +2005,13 @@ const SCRIPT = `
     const fn = filtroAtivo();
     vistas = fn ? fotos.filter(fn) : fotos;
   }
-  function salvaSel() { gravaLista(CHAVE_SEL, sel); }
   function salvaFav() { gravaLista(CHAVE_FAV, fav); }
-  function pintaSel(f) {
-    const on = sel.has(f.id);
+  function pintaFav(f) {
+    if (!f._el) return;
     const gosto = fav.has(f.id);
-    f.el.classList.toggle('sel', on);
     f.el.classList.toggle('fav', gosto);
-    // O check e o coração são só visuais (aria-hidden): o leitor de tela ouve
-    // o estado no nome.
-    f.el.setAttribute('aria-label', (f.video ? 'Vídeo ' : f.live ? 'Live Photo ' : 'Foto ') + semExt(f.nome) + (f.nova ? ', nova' : '') + (on ? ', selecionada' : '') + (gosto ? ', favorita' : ''));
-  }
-  function atualizaBarra() {
-    if (!barra || !barraN) return;
-    const n = sel.size;
-    barra.hidden = !(modoSel || n > 0);
-    document.body.classList.toggle('g-com-barra', !barra.hidden);
-    barraN.textContent = n === 1 ? '1 selecionada' : n + ' selecionadas';
-    grades.forEach(function (g) {
-      const l = visiveisDe(g);
-      g.todas.textContent = l.length && l.every(function (f) { return sel.has(f.id); }) ? 'Desmarcar todas' : 'Selecionar todas';
-    });
-  }
-  function alternaSel(f) {
-    if (sel.has(f.id)) sel.delete(f.id); else sel.add(f.id);
-    ultimoSel = f;
-    pintaSel(f);
-    salvaSel();
-    atualizaBarra();
-  }
-  // Shift+clique: do último marcado até este (na ordem que se vê).
-  function selecionaIntervalo(f) {
-    const a = ultimoSel ? vistas.indexOf(ultimoSel) : -1;
-    const b = vistas.indexOf(f);
-    if (a < 0 || b < 0) { alternaSel(f); return; }
-    for (let k = Math.min(a, b); k <= Math.max(a, b); k++) {
-      sel.add(vistas[k].id);
-      pintaSel(vistas[k]);
-    }
-    ultimoSel = f;
-    salvaSel();
-    atualizaBarra();
-  }
-  function selecionaSecao(k) {
-    const g = grades[k];
-    if (!g) return;
-    const lista = visiveisDe(g);
-    const todas = lista.every(function (f) { return sel.has(f.id); });
-    lista.forEach(function (f) {
-      if (todas) sel.delete(f.id); else sel.add(f.id);
-      pintaSel(f);
-    });
-    salvaSel();
-    atualizaBarra();
-    avisa(todas ? 'Seleção desta seção removida' : lista.length + (lista.length === 1 ? ' foto selecionada' : ' fotos selecionadas'));
-  }
-  function ligaModoSel(liga) {
-    modoSel = liga;
-    document.body.classList.toggle('g-modo-sel', liga);
-    if (botaoSel) {
-      botaoSel.setAttribute('aria-pressed', String(liga));
-      botaoSel.textContent = liga ? 'Selecionando' : 'Selecionar';
-    }
-    atualizaBarra();
+    // O coração é só visual (aria-hidden): o leitor de tela ouve o estado no nome.
+    f.el.setAttribute('aria-label', (f.video ? 'Vídeo ' : f.live ? 'Live Photo ' : 'Foto ') + semExt(f.nome) + (f.nova ? ', nova' : '') + (gosto ? ', favorita' : ''));
   }
 
   /** @returns {boolean} se a foto ficou favorita */
@@ -1639,7 +2019,7 @@ const SCRIPT = `
     const era = fav.has(f.id);
     if (era) fav.delete(f.id); else fav.add(f.id);
     salvaFav();
-    pintaSel(f);
+    pintaFav(f);
     atualizaChips();
     avisa(era ? 'Removida das favoritas' : 'Favorita guardada, só neste aparelho');
     // Com o visualizador aberto a lista não muda debaixo dele: refaz ao fechar.
@@ -1692,7 +2072,6 @@ const SCRIPT = `
     recalculaVistas();
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
   }
   /** Guarda as fotos do link nas favoritas deste aparelho. */
@@ -1701,7 +2080,7 @@ const SCRIPT = `
     let novas = 0;
     filtroLink.forEach(function (id) { if (!fav.has(id)) { fav.add(id); novas++; } });
     salvaFav();
-    fotos.forEach(pintaSel);
+    fotos.forEach(pintaFav);
     montaChips();
     avisa(novas ? novas + (novas === 1 ? ' foto guardada nas favoritas' : ' fotos guardadas nas favoritas') : 'Já estavam nas suas favoritas');
   }
@@ -1712,7 +2091,6 @@ const SCRIPT = `
     recalculaVistas();
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
     if (tinhaFoco) {
       const alvo = chips ? chips.querySelector('[data-acao="filtro-autor"][aria-pressed="true"]') || chips.querySelector('[data-acao="filtro-autor"]') : null;
@@ -1727,7 +2105,6 @@ const SCRIPT = `
     recalculaVistas();
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
     if (tinhaFoco) {
       const alvo = chips ? chips.querySelector('[data-acao="filtro-sec"][aria-pressed="true"]') || chips.querySelector('[data-acao="filtro-sec"]') : null;
@@ -1741,7 +2118,6 @@ const SCRIPT = `
     recalculaVistas();
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
     if (tinhaFoco) {
       const alvo = chips ? chips.querySelector('[data-acao="filtro-novas"]') : null;
@@ -1756,7 +2132,6 @@ const SCRIPT = `
     document.body.classList.toggle('g-so-fav', liga);
     montaChips();
     diagramaTudo();
-    atualizaBarra();
     window.scrollTo(0, 0);
     if (tinhaFoco && chipFav) chipFav.focus({ preventScroll: true });
   }
@@ -1870,13 +2245,21 @@ const SCRIPT = `
       b.title = 'Fica só neste aparelho';
       chips.appendChild(b);
       chipFav = b;
+      // Com o filtro ligado, o que se faz com elas: baixar (o que era o
+      // "Baixar" da seleção) e mandar o link.
       if (filtroFav && fav.size) {
+        const d = document.createElement('button');
+        d.type = 'button';
+        d.className = 'g-chip g-chip-prim';
+        d.dataset.acao = 'baixar-fav';
+        d.textContent = 'Baixar';
+        chips.appendChild(d);
         const c = document.createElement('button');
         c.type = 'button';
         c.className = 'g-chip';
         c.dataset.acao = 'compartilhar-fav';
         c.title = 'Um link que abre a galeria só com estas fotos';
-        c.textContent = 'Compartilhar as favoritas';
+        c.textContent = 'Compartilhar';
         chips.appendChild(c);
       }
     }
@@ -1939,15 +2322,25 @@ const SCRIPT = `
   /** @type {Promise<any> | null} */
   let carregandoLb = null;
 
-  // ---- Vídeo no visualizador (item 1f): fachada, como o vídeo do YouTube ----
-  // Nada do Google carrega antes do toque: o slide mostra a miniatura (lh3, a
-  // mesma origem das fotos) e um botão de play. SÓ o toque coloca o iframe do
-  // player do Drive (/file/d/ID/preview) no lugar, sem autoplay e com tela
-  // cheia como única permissão. Sair do slide devolve a fachada (o vídeo para).
+  // ---- Vídeo no visualizador: player estilo reels (v4.4.0) ----
+  // Um <video> comum servido pela própria origem (/galeria/.../video/<id>,
+  // com Range): ocupa o slide, começa a tocar MUDO quando o slide fica ativo,
+  // toque pausa/continua (ícone grande que some), botão de som redondo (a
+  // escolha vale para a sessão), barra fina arrastável e o tempo que falta.
+  // O src só entra no primeiro play: os slides vizinhos pré-carregados mostram
+  // o pôster (a miniatura lh3 de sempre) sem baixar nada do vídeo.
+  // Se o <video> falhar (formato que o navegador não toca, erro do Google),
+  // o slide cai no player do Drive, como antes: fachada + iframe no toque.
   const ID_DRIVE_RE = /^[A-Za-z0-9_-]{10,200}$/;
+  let somLigado = false;
+  try { somLigado = sessionStorage.getItem('g-som') === '1'; } catch (e) { /* sem storage: mudo */ }
+  function urlVideo(f) {
+    return '/galeria/' + encodeURIComponent(D.slug) + (D.cap ? '/' + encodeURIComponent(D.cap) : '') + '/video/' + f.id;
+  }
   function mostraFachada(box, f) {
+    if (box.gPlayer) { box.gPlayer.destroi(); box.gPlayer = null; }
     box.replaceChildren();
-    box.classList.remove('sem-mini');
+    box.classList.remove('sem-mini', 'g-reel');
     const img = document.createElement('img');
     img.alt = f.alt;
     img.decoding = 'async';
@@ -1957,7 +2350,7 @@ const SCRIPT = `
     b.type = 'button';
     b.className = 'g-vid-play';
     b.setAttribute('aria-label', 'Tocar o vídeo ' + semExt(f.nome));
-    b.addEventListener('click', function (ev) { ev.stopPropagation(); tocaVideo(box, f); });
+    b.addEventListener('click', function (ev) { ev.stopPropagation(); tocaNoDrive(box, f); });
     box.appendChild(img);
     box.appendChild(b);
     if (f.dur > 0) {
@@ -1967,7 +2360,7 @@ const SCRIPT = `
       box.appendChild(d);
     }
   }
-  function tocaVideo(box, f) {
+  function tocaNoDrive(box, f) {
     if (!ID_DRIVE_RE.test(f.id)) return;
     const fr = document.createElement('iframe');
     fr.src = 'https://drive.google.com/file/d/' + f.id + '/preview';
@@ -1978,11 +2371,186 @@ const SCRIPT = `
     box.replaceChildren(fr);
     fr.focus();
   }
+  // Os controles não deixam o PhotoSwipe começar um arrasto (troca de slide)
+  // nem tratar o toque como "mostrar/esconder a barra".
+  function isolaDoPswp(el) {
+    ['pointerdown', 'pointerup', 'mousedown', 'touchstart'].forEach(function (t) {
+      el.addEventListener(t, function (ev) { ev.stopPropagation(); });
+    });
+  }
+  function montaPlayer(box, f) {
+    box.replaceChildren();
+    box.classList.add('g-reel');
+    const v = document.createElement('video');
+    v.className = 'g-vid-tela';
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.muted = !somLigado;
+    v.loop = true;
+    v.preload = 'none';
+    v.poster = lh3(f.id, 1280);
+    v.setAttribute('aria-label', 'Vídeo ' + semExt(f.nome));
+    v.disableRemotePlayback = true;
+    const ico = document.createElement('span');
+    ico.className = 'g-vid-ico';
+    ico.setAttribute('aria-hidden', 'true');
+    const som = document.createElement('button');
+    som.type = 'button';
+    som.className = 'g-vid-som';
+    const barra = document.createElement('div');
+    barra.className = 'g-vid-barra';
+    barra.tabIndex = 0;
+    barra.setAttribute('role', 'slider');
+    barra.setAttribute('aria-label', 'Posição do vídeo');
+    barra.setAttribute('aria-valuemin', '0');
+    const prog = document.createElement('span');
+    prog.className = 'g-vid-prog';
+    barra.appendChild(prog);
+    const resta = document.createElement('span');
+    resta.className = 'g-vid-resta';
+    resta.setAttribute('aria-hidden', 'true');
+    box.append(v, ico, som, barra, resta);
+    isolaDoPswp(som);
+    isolaDoPswp(barra);
+
+    let ativo = false;
+    let caiu = false;
+    const dur = function () { return isFinite(v.duration) && v.duration > 0 ? v.duration : (f.dur || 0); };
+    function pintaSom() {
+      som.classList.toggle('mudo', v.muted);
+      som.setAttribute('aria-pressed', v.muted ? 'false' : 'true');
+      som.setAttribute('aria-label', v.muted ? 'Ligar o som' : 'Desligar o som');
+    }
+    function pintaTempo() {
+      const d = dur();
+      const t = Math.min(v.currentTime || 0, d || 0);
+      prog.style.transform = 'scaleX(' + (d ? t / d : 0) + ')';
+      resta.textContent = d ? '-' + fmtDur(d - t) : '';
+      barra.setAttribute('aria-valuemax', String(Math.round(d)));
+      barra.setAttribute('aria-valuenow', String(Math.round(t)));
+      barra.setAttribute('aria-valuetext', fmtDur(t) + ' de ' + fmtDur(d));
+    }
+    function pintaPausa() { box.classList.toggle('pausado', v.paused); }
+    function toca() {
+      if (caiu) return;
+      if (!v.getAttribute('src')) { v.preload = 'auto'; v.src = urlVideo(f); }
+      const p = v.play();
+      // Autoplay com som bloqueado (o navegador exige um toque): tenta mudo.
+      if (p && p.catch) {
+        p.catch(function (err) {
+          if (err && err.name === 'NotAllowedError' && !v.muted) { v.muted = true; pintaSom(); v.play().catch(function () { pintaPausa(); }); } else pintaPausa();
+        });
+      }
+    }
+    function pausa() { if (!v.paused) v.pause(); }
+    function alterna(ev) {
+      if (v.paused) toca(); else pausa();
+      box.classList.remove('pisca');
+      if (!reduz()) { void box.offsetWidth; box.classList.add('pisca'); }
+      if (ev) ev.preventDefault();
+    }
+    function cai() {
+      if (caiu) return;
+      caiu = true;
+      const aindaAtivo = ativo;
+      mostraFachada(box, f);
+      // O player do Drive só entra num toque (sem autoplay de terceiro).
+      if (aindaAtivo) { const b = box.querySelector('.g-vid-play'); if (b) b.focus({ preventScroll: true }); }
+    }
+    v.addEventListener('error', cai);
+    v.addEventListener('play', pintaPausa);
+    v.addEventListener('pause', pintaPausa);
+    v.addEventListener('waiting', function () { box.classList.add('espera'); });
+    ['playing', 'canplay', 'seeked'].forEach(function (t) { v.addEventListener(t, function () { box.classList.remove('espera'); }); });
+    v.addEventListener('timeupdate', pintaTempo);
+    v.addEventListener('loadedmetadata', pintaTempo);
+    v.addEventListener('volumechange', pintaSom);
+
+    // Mouse: o clique nativo no vídeo (o PhotoSwipe não trata clique fora de
+    // .pswp__img). Toque: o tapAction (tratado em preparaLightbox), para não
+    // alternar duas vezes. Arrasto de mais de 10 px não é clique.
+    let ini = null;
+    v.addEventListener('pointerdown', function (ev) { ini = { x: ev.clientX, y: ev.clientY, mouse: ev.pointerType === 'mouse' }; });
+    v.addEventListener('click', function (ev) {
+      const s = ini;
+      ini = null;
+      if (!s || !s.mouse) return;
+      if (Math.abs(ev.clientX - s.x) > 10 || Math.abs(ev.clientY - s.y) > 10) return;
+      alterna(ev);
+    });
+
+    som.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      v.muted = !v.muted;
+      somLigado = !v.muted;
+      try { sessionStorage.setItem('g-som', somLigado ? '1' : '0'); } catch (e) { /* sem storage */ }
+      if (v.paused && ativo) toca();
+    });
+
+    function vaiPara(clientX) {
+      const r = barra.getBoundingClientRect();
+      const d = dur();
+      if (!d || !r.width) return;
+      const x = Math.min(Math.max(clientX - r.left, 0), r.width);
+      v.currentTime = (x / r.width) * d;
+      pintaTempo();
+    }
+    let arrastando = false;
+    barra.addEventListener('pointerdown', function (ev) {
+      arrastando = true;
+      box.classList.add('arrasta');
+      try { barra.setPointerCapture(ev.pointerId); } catch (e) { /* sem captura */ }
+      vaiPara(ev.clientX);
+    });
+    barra.addEventListener('pointermove', function (ev) { if (arrastando) vaiPara(ev.clientX); });
+    const solta = function () { arrastando = false; box.classList.remove('arrasta'); };
+    barra.addEventListener('pointerup', solta);
+    barra.addEventListener('pointercancel', solta);
+    barra.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    // Teclado na barra: setas andam 5 s, Home/End vão às pontas. As teclas
+    // não sobem para o PhotoSwipe (que trocaria de slide com as setas).
+    barra.addEventListener('keydown', function (ev) {
+      const d = dur();
+      let alvo = null;
+      if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') alvo = v.currentTime + 5;
+      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') alvo = v.currentTime - 5;
+      else if (ev.key === 'Home') alvo = 0;
+      else if (ev.key === 'End') alvo = d;
+      if (alvo === null || !d) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      v.currentTime = Math.min(Math.max(alvo, 0), d);
+      pintaTempo();
+    });
+
+    pintaSom();
+    pintaTempo();
+    pintaPausa();
+    return {
+      ativa: function () { ativo = true; toca(); },
+      desativa: function () { ativo = false; pausa(); },
+      alterna: alterna,
+      contem: function (el) { return !!el && (el === v || el === box || (box.contains(el) && !som.contains(el) && !barra.contains(el))); },
+      destroi: function () {
+        ativo = false;
+        pausa();
+        v.removeAttribute('src');
+        try { v.load(); } catch (e) { /* já solto */ }
+      },
+    };
+  }
   function montaVideo(f) {
     const box = document.createElement('div');
     box.className = 'pswp__content g-vid';
-    mostraFachada(box, f);
+    if (typeof HTMLVideoElement === 'undefined' || !ID_DRIVE_RE.test(f.id)) mostraFachada(box, f);
+    else box.gPlayer = montaPlayer(box, f);
     return box;
+  }
+  // O player do slide atual (ou null).
+  function playerAtual() {
+    const pswp = lightbox && lightbox.pswp;
+    const c = pswp && pswp.currSlide && pswp.currSlide.content;
+    return c && c.element && c.element.gPlayer ? c.element.gPlayer : null;
   }
 
   function dadosSlide(f) {
@@ -2000,9 +2568,27 @@ const SCRIPT = `
     const maior = f.w || LONGO_ESTIMADO;
     const larguras = D.larguras.filter(function (x) { return x < maior; });
     larguras.push(maior);
+    /** @param {number[]} ls */
+    const conjunto = function (ls) { return ls.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', '); };
+    // Rede muito ruim (v4.4.0): a foto abre com 1 pixel físico por pixel da
+    // tela e sobe para a resolução cheia quando assenta (sobeNoVisualizador).
+    if (redeRuim) {
+      const teto = larguras.find(function (x) { return x >= window.innerWidth; }) || maior;
+      const baixas = larguras.filter(function (x) { return x <= teto; });
+      return {
+        src: lh3(f.id, teto),
+        srcset: conjunto(baixas),
+        gCheio: baixas.length < larguras.length ? conjunto(larguras) : '',
+        width: f.w || LONGO_ESTIMADO,
+        height: f.h || Math.round(LONGO_ESTIMADO / 1.5),
+        msrc: f.img.currentSrc || undefined,
+        alt: f.alt,
+        element: f.el,
+      };
+    }
     return {
       src: lh3(f.id, Math.min(maior, 1600)),
-      srcset: larguras.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', '),
+      srcset: conjunto(larguras),
       width: f.w || LONGO_ESTIMADO,
       height: f.h || Math.round(LONGO_ESTIMADO / 1.5),
       msrc: f.img.currentSrc || undefined,
@@ -2017,7 +2603,6 @@ const SCRIPT = `
   const ICONE_CORACAO_PSWP = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 27.500 14.300 26C8.600 20.900 5 17.700 5 13.600 5 10.400 7.500 8 10.600 8c1.800 0 3.500.8 4.600 2.100l.8.9.8-.9C18 8.800 19.700 8 21.500 8 24.500 8 27 10.400 27 13.600c0 4.100-3.600 7.300-9.300 12.400z"/></svg>';
   const ICONE_COMPARTILHAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 5l6 6-1.400 1.400L17 8.800V20h-2V8.800l-3.600 3.600L10 11zM8 15h4v2h-2v9h12v-9h-2v-2h4v13H8z"/></svg>';
   const ICONE_OCULTAR = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 9c-5.500 0-9.300 4.400-10.500 7 1.200 2.600 5 7 10.500 7s9.300-4.400 10.500-7C25.300 13.400 21.500 9 16 9zm0 11.500a4.500 4.500 0 1 1 0-9 4.500 4.500 0 0 1 0 9zM6.400 5 5 6.400 25.600 27 27 25.600z"/></svg>';
-  const ICONE_SEL = '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 32 32" width="32" height="32"><path d="M16 6a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.5 14.6-4.6-4.6 1.4-1.4 3.2 3.2 6.6-6.6 1.4 1.4z"/></svg>';
 
   // ---- Voltar fecha a camada de cima, como num app ----
   // O visualizador e a folha de download empilham UMA entrada cada no
@@ -2050,6 +2635,26 @@ const SCRIPT = `
     pswp.element.classList.toggle('g-eh-video', !!(f && f.video));
   }
 
+  // A subida da foto aberta com a rede ruim: o srcset cheio no lugar do
+  // baixo. O PhotoSwipe já pôs o "sizes" da largura exibida, então o
+  // navegador pede a cheia e troca só quando ela chega.
+  /** @param {any} c */
+  function sobeNoVisualizador(c) {
+    const d = c && c.data;
+    if (!d || !d.gCheio || !c.element) return;
+    d.srcset = d.gCheio;
+    d.gCheio = '';
+    c.element.srcset = d.srcset;
+  }
+  // Só a foto que ficou na tela (700 ms): as vizinhas seguem baixas.
+  /** @param {any} c */
+  function agendaSubidaLb(c) {
+    if (!c || !c.data || !c.data.gCheio) return;
+    setTimeout(function () {
+      const pswp = lightbox && lightbox.pswp;
+      if (pswp && pswp.currSlide && pswp.currSlide.content === c) sobeNoVisualizador(c);
+    }, 700);
+  }
   function preparaLightbox() {
     if (carregandoLb) return carregandoLb;
     const urlLb = D.lightbox;
@@ -2085,10 +2690,38 @@ const SCRIPT = `
           e.content.element = montaVideo(dados.foto);
         }
       });
+      // Slide ativo toca; ao sair, pausa (o player do Drive, se entrou, some
+      // e a fachada volta). Ao destruir o slide, o vídeo solta a conexão.
+      lightbox.on('contentActivate', function (e) {
+        const el = e.content.element;
+        if (el && el.gPlayer) el.gPlayer.ativa();
+      });
       lightbox.on('contentDeactivate', function (e) {
         const dados = e.content.data;
         const el = e.content.element;
-        if (dados && dados.type === 'video' && dados.foto && el && el.querySelector('iframe')) mostraFachada(el, dados.foto);
+        if (el && el.gPlayer) el.gPlayer.desativa();
+        else if (dados && dados.type === 'video' && dados.foto && el && el.querySelector('iframe')) mostraFachada(el, dados.foto);
+      });
+      lightbox.on('contentDestroy', function (e) {
+        const el = e.content.element;
+        if (el && el.gPlayer) { el.gPlayer.destroi(); el.gPlayer = null; }
+      });
+      // Toque no vídeo = pausa/continua (no lugar de esconder a barra).
+      lightbox.on('tapAction', function (e) {
+        const p = playerAtual();
+        const alvo = e.originalEvent && e.originalEvent.target;
+        if (p && p.contem(alvo)) { e.preventDefault(); p.alterna(); }
+      });
+      // Espaço pausa/continua o vídeo do slide (fora de um botão focado).
+      lightbox.on('keydown', function (e) {
+        const ev = e.originalEvent;
+        const p = playerAtual();
+        if (!p || !ev || (ev.key !== ' ' && ev.key !== 'k')) return;
+        const foco = document.activeElement;
+        if (foco && (foco.tagName === 'BUTTON' || foco.getAttribute('role') === 'slider')) return;
+        e.preventDefault();
+        ev.preventDefault();
+        p.alterna();
       });
       lightbox.on('uiRegister', registraUi);
       // Link direto para a foto aberta (?foto=código, v3.9.0): copiar a barra de endereço
@@ -2112,17 +2745,30 @@ const SCRIPT = `
           else { recalculaVistas(); agendaDiagrama(); }
         }
       });
+      lightbox.on('loadComplete', function (e) {
+        if (e.slide && e.slide.isActive) agendaSubidaLb(e.content);
+      });
+      // Ampliou: a cheia na hora (quem amplia quer o detalhe).
+      lightbox.on('zoomPanUpdate', function (e) {
+        const sl = e.slide;
+        if (sl && sl.content && sl.content.data && sl.content.data.gCheio && sl.currZoomLevel > sl.zoomLevels.initial * 1.01) sobeNoVisualizador(sl.content);
+      });
       lightbox.on('change', function () {
+        const atual = lightbox.pswp.currSlide && lightbox.pswp.currSlide.content;
+        if (atual && atual.element && atual.element.complete && atual.element.naturalWidth > 0) agendaSubidaLb(atual);
         const f = vistas[lightbox.pswp.currIndex];
+        if (f) garanteNaGrade(f);
         if (f && noTopo('foto')) history.replaceState(history.state, '', enderecoDaFoto(f.id));
         marcaTipoDoSlide();
       });
       lightbox.on('close', function () {
+        const p = playerAtual();
+        if (p) p.desativa();
         // Fechou pela interface (×, Esc, arrastar): tira a entrada que a
         // abertura pôs. Fechou pelo voltar: ela já saiu.
         if (noTopo('foto')) history.back();
         const f = lightbox.pswp ? vistas[lightbox.pswp.currIndex] : null;
-        if (f) f.el.focus({ preventScroll: true });
+        if (f) { garanteNaGrade(f); f.el.focus({ preventScroll: true }); }
       });
       lightbox.init();
       return lightbox;
@@ -2194,27 +2840,6 @@ const SCRIPT = `
         if (!f) return;
         alternaFav(f);
         sincronizaFavUi();
-      },
-    });
-    pswp.ui.registerElement({
-      name: 'g-sel', order: 8, isButton: true, title: 'Selecionar esta foto', html: ICONE_SEL,
-      onInit: function (el, p) {
-        const sync = function () {
-          const f = vistas[p.currIndex];
-          const on = !!f && sel.has(f.id);
-          el.classList.toggle('on', on);
-          el.setAttribute('aria-pressed', String(on));
-        };
-        p.on('change', sync);
-        sync();
-      },
-      onClick: function (_e, el, p) {
-        const f = vistas[p.currIndex];
-        if (!f) return;
-        alternaSel(f);
-        el.classList.toggle('on', sel.has(f.id));
-        el.setAttribute('aria-pressed', String(sel.has(f.id)));
-        avisa(sel.has(f.id) ? 'Adicionada à seleção' : 'Removida da seleção');
       },
     });
     pswp.ui.registerElement({
@@ -2341,7 +2966,13 @@ const SCRIPT = `
   }
 
   function abre(i) {
-    preparaLightbox().then(function (lb) { lb.loadAndOpen(Math.max(0, i)); }).catch(function () {
+    const f = vistas[Math.max(0, i)];
+    if (f) garanteNaGrade(f);
+    preparaLightbox().then(function (lb) {
+      // Rede ruim: a vizinha seguinte só, para não disputar com a aberta.
+      lb.options.preload = redeRuim ? [0, 1] : [1, 2];
+      lb.loadAndOpen(Math.max(0, i));
+    }).catch(function () {
       avisa('O visualizador não carregou. Recarregue a página.');
     });
   }
@@ -2766,41 +3397,14 @@ const SCRIPT = `
     mostraFolha(primeiro || /** @type {HTMLElement} */ (folha.querySelector('[data-acao="fechar-folha"]')));
   }
 
-  // Compartilhar a foto aberta (botão Compartilhar do visualizador): o arquivo
-  // da pasta do Instagram, quando a foto tem e o aparelho aceita; senão o link
-  // direto; senão copia o link. Não é download — é o menu de compartilhar, que
-  // quem toca em "Compartilhar" pediu.
-  /** @type {Map<string, File>} */
-  const arquivosProntos = new Map();
-  const podeArquivo = aceitaArquivoDeTeste();
-  // Compartilhar não entra na fila (a pessoa está olhando a foto, não baixando
-  // um lote): se o servidor mandou esperar, diz quanto e não repete o pedido
-  // a cada toque até o prazo passar.
-  let compartilharAte = 0;
+  // Compartilhar a foto aberta (botão Compartilhar do visualizador, v4.4.0):
+  // manda o LINK da foto (?foto=código), nunca o arquivo. O link abre direto
+  // nela, com a prévia (imagem e título) no WhatsApp; o arquivo continua em
+  // Baixar. Sem o menu do sistema, copia o link. Nada é baixado do servidor:
+  // não gasta o limite de downloads nem espera o Google.
   async function compartilhaFoto(f) {
     const link = location.origin + enderecoDaFoto(f.id);
-    if (Date.now() < compartilharAte) {
-      avisa('Muita gente baixando agora. Tente de novo em ' + Math.ceil((compartilharAte - Date.now()) / 1000) + ' s.');
-      return;
-    }
     try {
-      if (podeArquivo && f.redes) {
-        let arq = arquivosProntos.get(f.id);
-        if (!arq) {
-          avisa('Preparando a foto…');
-          arq = await buscaArquivo(f, 'redes', true);
-          arquivosProntos.set(f.id, arq);
-        }
-        try {
-          await navigator.share({ files: [arq] });
-        } catch (e) {
-          // O iPhone só deixa compartilhar logo depois do toque: a foto já está
-          // pronta, então o toque seguinte compartilha na hora.
-          if (e && e.name === 'NotAllowedError') { avisa('Foto pronta: toque em Compartilhar de novo'); return; }
-          throw e;
-        }
-        return;
-      }
       if (typeof navigator.share === 'function') {
         await navigator.share({ title: document.title, url: link });
         return;
@@ -2809,12 +3413,12 @@ const SCRIPT = `
       avisa('Link copiado');
     } catch (e) {
       if (e && e.name === 'AbortError') return;
-      if (e && e.espera) {
-        compartilharAte = Date.now() + e.espera * 1000;
-        avisa('Muita gente baixando agora. Tente de novo em ' + e.espera + ' s.');
-        return;
+      try {
+        await navigator.clipboard.writeText(link);
+        avisa('Link copiado');
+      } catch (e2) {
+        avisa('Não foi possível compartilhar. Copie o endereço da página.');
       }
-      avisa(e && e.name === 'Error' && e.message ? e.message : 'Não foi possível compartilhar. Use Baixar.');
     }
   }
 
@@ -3171,10 +3775,8 @@ const SCRIPT = `
     const f = fotos[Number(a.dataset.i)];
     if (!f) return;
     if (alvo.closest('.g-fav')) { e.preventDefault(); alternaFav(f); return; }
-    if (modoSel && e.shiftKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); selecionaIntervalo(f); return; }
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return; // nova aba: o ?foto= abre lá
     e.preventDefault();
-    if (modoSel) { alternaSel(f); return; }
     abre(vistas.indexOf(f));
   });
   // F favorita a foto em foco na grade (o coração só aparece ao passar o mouse).
@@ -3193,15 +3795,12 @@ const SCRIPT = `
     if (acao === 'fechar-folha') fechaFolha();
     else if (acao === 'fechar-rem') fechaRemocao();
     else if (acao === 'pedir-remocao') abreRemocao(lightbox && lightbox.pswp ? vistas[lightbox.pswp.currIndex] : null);
-    else if (acao === 'limpar-sel') { sel.clear(); ultimoSel = null; fotos.forEach(pintaSel); salvaSel(); atualizaBarra(); }
-    else if (acao === 'fim-sel') ligaModoSel(false);
-    else if (acao === 'baixar-sel') {
-      const lista = fotos.filter(function (f) { return sel.has(f.id); });
-      if (lista.length) abreFolha(lista); else avisa('Nenhuma foto selecionada');
+    else if (acao === 'baixar-fav') {
+      const lista = favoritas();
+      if (lista.length) abreFolha(lista); else avisa('Marque fotos com o coração primeiro');
     }
     else if (acao === 'baixar-tudo') abreFolhaTudo();
     else if (acao === 'compartilhar') compartilhaPagina();
-    else if (acao === 'sel-secao') selecionaSecao(Number(b.dataset.sec));
     else if (acao === 'ir-sec') irParaSecao(Number(b.dataset.sec));
     else if (acao === 'filtro-fav') ligaFiltroFav(!filtroFav);
     else if (acao === 'filtro-novas') ligaFiltroNovas(!filtroNovas);
@@ -3216,7 +3815,6 @@ const SCRIPT = `
       if (h1) h1.focus({ preventScroll: true });
     }
   });
-  if (botaoSel) botaoSel.addEventListener('click', function () { ligaModoSel(!modoSel); });
   // Com a folha aberta, Esc e as setas são dela — não do visualizador por baixo.
   window.addEventListener('keydown', function (e) {
     if (!folha || folha.hidden) return;
@@ -3240,12 +3838,10 @@ const SCRIPT = `
   // ---- Início ----
   detectaWebp(function () {
     monta();
-    fotos.forEach(pintaSel);
-    sel.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) sel.delete(id); });
+    fotos.forEach(pintaFav);
     fav.forEach(function (id) { if (!fotos.some(function (f) { return f.id === id; })) fav.delete(id); });
     const doLink = leSelecaoDoLink();
     if (filtroSec >= 0) recalculaVistas();
-    atualizaBarra();
     montaChips();
     diagramaTudo();
     if (main) main.classList.remove('g-reserva');
@@ -3274,7 +3870,8 @@ const SCRIPT = `
     }
     // Aquece o visualizador no tempo ocioso: o primeiro toque abre na hora.
     const ocioso = window.requestIdleCallback || function (fn) { return setTimeout(fn, 1200); };
-    ocioso(function () { preparaLightbox().catch(function () {}); });
+    // v4.4.0: e o núcleo (pswpModule) também, que antes só vinha no toque.
+    ocioso(function () { preparaLightbox().then(function () { return import(D.core); }).catch(function () {}); });
   });
 })();
 `;

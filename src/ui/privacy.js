@@ -76,7 +76,7 @@ export function privacyHTML() {
   </header>
   <main>
     <h1>Política de Privacidade</h1>
-    <p class="updated">Atualizada em 13 de novembro de 2026</p>
+    <p class="updated">Atualizada em 17 de novembro de 2026</p>
 
     <p class="intro">Esta política explica como os dados pessoais são tratados no site <strong>fotos.lucafchala.com</strong>, em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
 
@@ -118,7 +118,7 @@ export function privacyHTML() {
     <p>Para uso em portfólio, a exibição segue o legítimo interesse. Qualquer pessoa retratada pode exercer seu direito de oposição solicitando a remoção da imagem pelo canal facilitado no rodapé do evento.</p>
 
     <h2 id="busca-rosto">3.1. Busca pelo rosto</h2>
-    <p>Alguns álbuns públicos têm o botão <em>“Procurar meu rosto”</em>: você envia uma selfie e o site mostra as fotos do álbum em que você provavelmente aparece. O rosto é um <strong>dado biométrico</strong>, um dado pessoal sensível (art. 5º, II, e art. 11 da LGPD), e por isso a busca funciona assim:</p>
+    <p>Alguns álbuns públicos têm o botão <em>“Achar minhas fotos pelo rosto”</em>: você envia uma selfie e o site mostra as fotos do álbum em que você provavelmente aparece. O rosto é um <strong>dado biométrico</strong>, um dado pessoal sensível (art. 5º, II, e art. 11 da LGPD), e por isso a busca funciona assim:</p>
     <ul>
       <li><strong>Só com o seu consentimento.</strong> A busca só começa depois que você marca que concorda, a cada vez. A selfie é reduzida no seu aparelho, enviada à <strong>Amazon Rekognition</strong> (Amazon Web Services, região de São Paulo) só para a comparação e <strong>não é guardada</strong> nem pelo site nem pela Amazon.</li>
       <li><strong>O índice do álbum.</strong> Para a comparação, cada rosto das fotos do álbum vira um código numérico (um “vetor”), guardado na Amazon Rekognition. O código não traz nome nem identifica ninguém sozinho: só diz em qual foto há um rosto parecido. Ele é montado a partir das fotos públicas do álbum e acompanha o álbum: foto oculta ou removida sai do índice.</li>
@@ -131,25 +131,36 @@ export function privacyHTML() {
     <h2 id="aviso-fotos">3.2. Aviso de fotos novas</h2>
     <p>Nos álbuns que têm o botão <em>“Avisar quando chegar foto nova”</em>, você pode receber uma notificação no celular ou no computador. Só funciona se você tocar no botão e o navegador pedir a sua permissão. O site guarda o endereço de entrega que o seu navegador cria para isso (um link do serviço de notificação do Google, da Apple, da Mozilla ou da Microsoft) e as chaves que cifram o aviso, sem nome, e-mail ou telefone. O texto vai cifrado: o serviço de notificação não o lê. Para parar, toque de novo no botão (“Desligar”) ou bloqueie as notificações do site no navegador; o endereço é apagado na hora ou quando o serviço de notificação o recusar, é apagado junto com o álbum, e vence sozinho se passar 400 dias sem que um aviso seja entregue a ele. Base legal: o seu consentimento (art. 7º, I, da LGPD).</p>
 
+    <h2 id="busca-fotos">3.3. Busca nas fotos e moderação</h2>
+    <p>Nos álbuns que têm o campo <em>“Procurar nas fotos”</em>, você pode achar uma foto pelo que aparece nela: um número de camisa, uma palavra de uma faixa, uma coisa ou uma cena (palco, bolo, bola). Para isso:</p>
+    <ul>
+      <li><strong>Cada foto pública do álbum é lida uma vez pela Amazon Rekognition</strong> (Amazon Web Services, região de São Paulo), a partir da miniatura: as palavras que aparecem nela, as coisas e cenas reconhecidas e uma checagem de conteúdo impróprio. <strong>Não envolve rosto</strong>: nada aqui identifica pessoas.</li>
+      <li><strong>O que fica guardado</strong> é só o resultado, em texto (as palavras e os nomes das coisas), no banco de dados do site. A imagem não é guardada pela Amazon. Um nome escrito num crachá ou numa faixa pode aparecer entre as palavras lidas, como já aparece para quem olha a foto.</li>
+      <li><strong>O que você digita na busca não é guardado.</strong></li>
+      <li><strong>Moderação.</strong> Se a checagem marcar uma foto como possivelmente imprópria, o responsável pelo site recebe um aviso e decide. O site não esconde nem apaga nada sozinho.</li>
+      <li><strong>Por quanto tempo:</strong> enquanto a foto estiver no álbum. Foto oculta ou removida sai da busca na atualização seguinte, e apagar o álbum apaga a busca dele.</li>
+      <li><strong>Base legal:</strong> o legítimo interesse (art. 7º, IX, da LGPD), o mesmo da publicação do álbum: o que é lido é o que qualquer pessoa já vê na foto pública. A moderação existe para proteger quem aparece nas fotos, especialmente os menores (art. 14). Se você não quer que uma foto sua seja lida, peça a remoção dela pelo canal da galeria.</li>
+    </ul>
+
     <h2>4. Com quem os dados são compartilhados</h2>
     <p>Para funcionar, o site utiliza serviços de terceiros que podem processar dados:</p>
     <ul>
-      <li><strong>Google Drive</strong> — hospeda e disponibiliza as fotos e os vídeos dos eventos, e recebe os que você envia pela página do álbum (guardados na conta do responsável pelo site). Nos vídeos da galeria, o player do Google Drive só é carregado quando você toca para reproduzir; a partir daí, o Google passa a ser um terceiro que recebe os dados do seu acesso, e vale a <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Política de Privacidade do Google</a>.</li>
+      <li><strong>Google Drive</strong> — hospeda e disponibiliza as fotos e os vídeos dos eventos, e recebe os que você envia pela página do álbum (guardados na conta do responsável pelo site). Os vídeos da galeria tocam no próprio site, a partir de uma cópia guardada na Cloudflare; só se essa reprodução falhar a página usa o player do Google Drive, carregado apenas quando você toca para reproduzir. A partir daí, o Google passa a ser um terceiro que recebe os dados do seu acesso, e vale a <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Política de Privacidade do Google</a>.</li>
       <li><strong>Resend</strong> — envio dos e-mails das solicitações, do suporte e dos códigos de acesso.</li>
       <li><strong>Serviços de notificação do navegador (Google, Apple, Mozilla, Microsoft)</strong> — só para quem liga o aviso de fotos novas: entregam a notificação ao seu aparelho, cifrada. Ver a seção 3.2.</li>
-      <li><strong>Amazon Web Services (Amazon Rekognition)</strong> — só nos álbuns com busca pelo rosto: compara a selfie com o índice do álbum, na região de São Paulo. Ver a seção 3.1.</li>
+      <li><strong>Amazon Web Services (Amazon Rekognition)</strong> — na região de São Paulo, só nos álbuns que têm as buscas: na busca pelo rosto, compara a selfie com o índice do álbum (seção 3.1); na busca nas fotos, lê uma vez cada foto pública para achar palavras, coisas e conteúdo impróprio (seção 3.3).</li>
       <li><strong>YouTube (Google)</strong> — só em projetos que têm um vídeo na página. A imagem de capa do vídeo vem do YouTube junto com a página; o player em si só é carregado quando você clica em reproduzir, no modo de privacidade aprimorada (<code>youtube-nocookie.com</code>). A partir daí vale a <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Política de Privacidade do Google</a>.</li>
-      <li><strong>Cloudflare</strong> — hospedagem do site, guarda de <strong>cópias das fotos</strong> dos álbuns (miniaturas e, quando alguém baixa, o arquivo) para a galeria abrir rápido — a cópia de uma foto é apagada quando ela é ocultada, removida ou apagada da pasta —, medição anônima de acesso e proteção contra robôs (Turnstile). O Turnstile verifica sinais do navegador para distinguir pessoas de robôs, sem coletar dados para publicidade. Na maior parte dos acessos isso acontece sem nenhuma ação sua; quando a Cloudflare julga necessário, ele pode pedir uma confirmação simples (como marcar uma caixa). Consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile da Cloudflare</a>.</li>
+      <li><strong>Cloudflare</strong> — hospedagem do site, guarda de <strong>cópias das fotos e dos vídeos</strong> dos álbuns (miniaturas e, quando alguém baixa uma foto ou toca um vídeo, o arquivo) para a galeria abrir rápido — a cópia é apagada quando a foto ou o vídeo é ocultado, removido ou apagado da pasta —, medição anônima de acesso e proteção contra robôs (Turnstile). O Turnstile verifica sinais do navegador para distinguir pessoas de robôs, sem coletar dados para publicidade. Na maior parte dos acessos isso acontece sem nenhuma ação sua; quando a Cloudflare julga necessário, ele pode pedir uma confirmação simples (como marcar uma caixa). Consulte o <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Adendo de Privacidade do Turnstile da Cloudflare</a>.</li>
     </ul>
     <p>Os dados não são vendidos nem usados para publicidade.</p>
 
     <h2>4.1. Transferência internacional de dados</h2>
-    <p>Todos os serviços listados acima são operados por empresas <strong>sediadas nos Estados Unidos</strong>, com infraestrutura distribuída globalmente. Isso significa que os seus dados — inclusive as fotografias — são tratados fora do Brasil.</p>
+    <p>Todos os serviços listados acima são operados por empresas <strong>sediadas nos Estados Unidos</strong>, com infraestrutura distribuída globalmente. Isso significa que os seus dados — inclusive as fotografias — são tratados fora do Brasil. As cópias das fotos que o site guarda na Cloudflare ficam num armazenamento no leste da América do Norte.</p>
     <p>Essa transferência se apoia no <strong>art. 33, inciso II, alíneas “a” e “b”, da LGPD</strong>: cada um desses fornecedores oferece garantias por meio de cláusulas contratuais específicas de proteção de dados (<em>Data Processing Agreements</em>), que incorporam as cláusulas-padrão internacionais e obrigam o fornecedor a um nível de proteção compatível com a lei brasileira.</p>
     <p class="note">Em outras palavras: o site não roda em servidor no Brasil, e é justo que você saiba disso. A proteção dos seus dados fora do país está garantida por contrato com cada fornecedor, não por promessa minha.</p>
 
     <h2>4.2. Decisões automatizadas</h2>
-    <p><strong>Não existem.</strong> Nenhum tratamento neste site toma decisão automatizada que produza efeito jurídico ou afete você de forma significativa (art. 20 da LGPD). A busca pelo rosto (seção 3.1) só sugere fotos para você conferir. A verificação anti-robô (Turnstile) apenas distingue pessoas de programas para liberar um formulário — e, se ela falhar, você pode receber um código por e-mail e seguir, ou usar o caminho humano: <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou e-mail, indicados na própria tela.</p>
+    <p><strong>Não existem.</strong> Nenhum tratamento neste site toma decisão automatizada que produza efeito jurídico ou afete você de forma significativa (art. 20 da LGPD). A busca pelo rosto (seção 3.1) só sugere fotos para você conferir, e a moderação (seção 3.3) só avisa o responsável, que decide. A verificação anti-robô (Turnstile) apenas distingue pessoas de programas para liberar um formulário — e, se ela falhar, você pode receber um código por e-mail e seguir, ou usar o caminho humano: <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">WhatsApp</a> ou e-mail, indicados na própria tela.</p>
 
     <h2>5. Por quanto tempo guardamos</h2>
     <ul>

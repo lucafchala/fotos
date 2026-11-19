@@ -106,7 +106,7 @@ describe('cartão de UMA foto (?foto=, v3.9.0)', () => {
     const pagina = await (await get('/galeria/formatura/abertura')).text();
     // O script vem como arquivo (#252): lido pela própria rota.
     const h = await (await get(/** @type {RegExpMatchArray} */ (pagina.match(/<script src="(\/galeria\.[0-9a-f]{10}\.js)"/))[1])).text();
-    expect(h).toContain("a.href = '?foto=' + codigoDe(f[0]);");
+    expect(h).toContain("a.href = '?foto=' + codigoDe(foto.id);");
     expect(h).toContain("const link = location.origin + enderecoDaFoto(f.id);");
     expect(h).toContain("history.pushState({ g: 'foto' }, '', enderecoDaFoto(f.id));");
   });
