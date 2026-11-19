@@ -18,7 +18,28 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.6.0] — ainda não publicada
+## [4.7.0] — ainda não publicada
+
+Menor: janela da galeria, igual para projetos públicos e de família
+(pedido do dono, 19/11/2026).
+
+- **"Ver e baixar as fotos" abre uma janela da galeria**, no molde da do
+  Drive: "Como funciona" em três passos (tocar na foto, coração, Favoritas →
+  Baixar), a escolha entre Para redes sociais e Tamanho máximo, "Salvar no
+  Fotos" no iPhone, e o botão **Abrir a galeria**. Os passos saíram de baixo
+  do botão, na página.
+- **Família padronizado**: projeto de família com pasta do Drive ganha o
+  mesmo botão e a mesma janela. O aceite (termos, declaração, nome quando
+  pedido) fica dentro dela e libera o passe da galeria; antes a página só
+  mostrava o botão do Drive e a galeria aparecia escondida lá dentro.
+- **Drive como alternativa nos dois**: "Prefere o Google Drive? Abrir no
+  Drive", na página e na janela, troca a janela para o modo Drive sem perder
+  o aceite já dado; "Ver as fotos aqui no site" volta. A barra fixa do
+  celular também abre a janela da galeria.
+- Projeto sem pasta do Drive (link de arquivo) e "em breve" continuam como
+  estavam. `tests/galeria-janela.test.js` prende os quatro casos.
+
+## [4.6.0] — 2026-11-19
 
 Menor: página do evento mais limpa e card em destaque só de outra cor
 (pedidos do dono, 19/11/2026).

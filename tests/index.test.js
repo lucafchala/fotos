@@ -517,7 +517,7 @@ describe('pasta só de vídeos', () => {
     expect(html).not.toContain('id="drive-link-videos"');
     expect(html).not.toContain('class="video-chip"');
     expect(html).not.toContain('Acessar fotos e vídeos');
-    expect(html).toContain('class="btn-drive-go"');
+    expect(html).toMatch(/id="drive-link"[^>]*class="btn-drive-go/);
   });
 
   it('o aviso de novidade diz "Novos vídeos" quando é esse o tipo', () => {

@@ -18,7 +18,9 @@ e sem etapa de build.
   Ao chegar ao fim da lista, os próximos 12 entram sozinhos (4.5.0); o botão
   "Carregar mais" continua para quem navega pelo teclado.
 - **Página do projeto.** Capa em carrossel, descrição, data, créditos e o botão
-  "Ver e baixar as fotos". O Google Drive fica como opção secundária, para quem
+  "Ver e baixar as fotos", que abre uma janela com o passo a passo e o botão
+  da galeria, igual em projetos públicos e de família (nos de família o aceite
+  fica dentro dela). O Google Drive fica como opção secundária, para quem
   prefere abrir a pasta.
 - **Galeria própria.** As fotos da pasta do Drive dentro do site, em grade
   justificada na proporção real, sem recorte. O visualizador abre na resolução

@@ -111,6 +111,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
   // Galeria própria aberta a todos nos álbuns públicos com pasta do Drive:
   // o botão sai pronto, sem portão. Restritos ganham o botão depois do portão.
   const galeriaPublica = !restrictedAccess && !event.comingSoon && !!pastaDoDrive(event.driveUrl);
+  // Galeria própria em qualquer acesso (4.7.0): público e família ganham o
+  // MESMO botão "Ver e baixar as fotos", que abre a janela no modo galeria.
+  // Nos restritos o portão (aceite) fica dentro dela e libera o passe; o
+  // Drive vira a opção "Prefere o Google Drive?" nos dois.
+  const temGaleria = !event.comingSoon && !!pastaDoDrive(event.driveUrl);
   const ogDescription = previewDescription([
     event.comingSoon ? 'Em breve' : '',
     event.date ? formatDatePT(event.date) : '',
@@ -472,13 +477,19 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     #drive-gate-hint{font-size:.82rem;color:var(--warn-text);line-height:1.5;margin-top:.875rem}
     .drive-dl-tip{font-size:.82rem;color:var(--text-2);line-height:1.55;margin-top:1rem;padding:.7rem .875rem;background:var(--bg-card);border-radius:8px}
     .drive-dl-tip strong{color:var(--text)}
-    /* Como baixar (4.6.0): três passos curtos no lugar do parágrafo. O resto
-       (redes sociais ou tamanho máximo, Salvar no Fotos) a própria folha de
-       download explica na hora de escolher. */
+    /* Como baixar: três passos curtos, na janela da galeria (4.7.0; na
+       4.6.0 ficavam soltos na página, embaixo do botão). */
     .passos-baixar{list-style:none;counter-reset:passo;margin:1rem 0 0;padding:0;display:flex;flex-direction:column;gap:.5rem;font-size:.875rem;color:var(--text-2);line-height:1.4;text-align:left}
     .passos-baixar li{counter-increment:passo;display:flex;align-items:baseline;gap:.625rem}
     .passos-baixar li::before{content:counter(passo);flex:none;width:1.375rem;height:1.375rem;border-radius:50%;background:var(--bg-card);color:var(--text);font-size:.75rem;font-weight:600;display:inline-flex;align-items:center;justify-content:center;transform:translateY(-.0625rem)}
     .passos-baixar strong{color:var(--text)}
+    /* Janela em dois modos (4.7.0): galeria (padrão quando há galeria) e
+       Drive. .so-galeria e .so-drive somem no modo do outro; na galeria
+       pública o aceite não tem papel, e some também. */
+    #modal:not(.modo-galeria) .so-galeria,#modal.modo-galeria .so-drive{display:none}
+    #modal.modo-galeria.galeria-livre .gate-aceite{display:none}
+    .guia-tamanhos{margin-top:.875rem}
+    .modo-troca{text-align:center;margin-top:.5rem}
     .drive-consent-note{font-size:.8rem;color:var(--text-dim);line-height:1.5;margin-top:.875rem}
     .drive-consent-note a{color:var(--footer-link)}
     .drive-locked .btn-drive-go,.drive-locked .btn-drive-opt{background:var(--disabled-bg);border-color:var(--disabled-border);color:var(--disabled-text);cursor:not-allowed}
@@ -598,16 +609,13 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             As fotos virão em breve
           </button>`
-        : galeriaPublica
-          ? `<a class="btn-drive" href="/galeria/${escape(event.slug)}">
+        : temGaleria
+          ? `${galeriaPublica
+              ? `<a class="btn-drive" href="/galeria/${escape(event.slug)}" data-action="openGaleria">`
+              : '<button type="button" class="btn-drive" data-action="openGaleria">'}
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
             Ver e baixar as fotos
-          </a>
-          <ol class="passos-baixar" aria-label="Como baixar">
-            <li><span>Toque numa foto para ver grande.</span></li>
-            <li><span>Marque as que quiser com o <strong>coração</strong>.</span></li>
-            <li><span>Em <strong>Favoritas</strong>, toque em <strong>Baixar</strong>.</span></li>
-          </ol>
+          ${galeriaPublica ? '</a>' : '</button>'}
           <button type="button" class="btn-drive-alt" data-action="openModal">Prefere o Google Drive? Abrir no Drive</button>`
           : `<button class="btn-drive" data-action="openModal">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
@@ -653,27 +661,36 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     ${footerLegalLinksHTML()}
   </footer>
 
-  ${galeriaPublica ? `<a class="sticky-cta" id="sticky-cta" href="/galeria/${escape(event.slug)}">
+  ${temGaleria ? `<button class="sticky-cta" id="sticky-cta" data-action="openGaleria">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
     Ver e baixar as fotos
-  </a>` : !event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" data-action="openModal" aria-label="${ctaLabel}">
+  </button>` : !event.comingSoon ? `<button class="sticky-cta" id="sticky-cta" data-action="openModal" aria-label="${ctaLabel}">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
     ${ctaLabel}
   </button>` : ''}
 
   <!-- DRIVE MODAL -->
-  <div class="modal-ov" id="modal">
-    <div class="modal-sheet" role="dialog" aria-modal="true" aria-label="${ctaLabel}">
+  <div class="modal-ov${galeriaPublica ? ' galeria-livre' : ''}" id="modal">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
       <div class="modal-head">
-        <h2>${ctaLabel}</h2>
+        <h2 id="modal-titulo">${temGaleria ? '<span class="so-galeria">Ver e baixar as fotos</span>' : ''}<span class="so-drive">${ctaLabel}</span></h2>
         <button class="m-close" data-action="closeModal" aria-label="Fechar">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
       <div class="guide-box">
-        <div class="guide-title">Antes de acessar</div>
-        <p class="guide-note">Baixe as fotos pelo Google Drive — <strong>evite print de tela</strong>, a foto perde qualidade e resolução. Baixar direto do Drive garante o arquivo original.</p>
-        <p class="guide-note">Não compartilhe o link do Drive diretamente — quem tiver esse link consegue acessar. Para compartilhar esta galeria, use o botão <strong>Compartilhar</strong> no rodapé da página.</p>
+        ${temGaleria ? `<div class="so-galeria">
+          <div class="guide-title">Como funciona</div>
+          <ol class="passos-baixar" aria-label="Como baixar">
+            <li><span>Toque numa foto para ver grande.</span></li>
+            <li><span>Marque as que quiser com o <strong>coração</strong>.</span></li>
+            <li><span>Em <strong>Favoritas</strong>, toque em <strong>Baixar</strong> (ou use <strong>Baixar tudo</strong>).</span></li>
+          </ol>
+          <p class="guide-note guia-tamanhos">Escolha <strong>Para redes sociais</strong> (pronta para Instagram e WhatsApp) ou <strong>Tamanho máximo</strong> (o original). No iPhone, toque em <strong>Salvar no Fotos</strong>.</p>
+        </div>` : ''}
+        <div class="guide-title so-drive">Antes de acessar</div>
+        <p class="guide-note so-drive">Baixe as fotos pelo Google Drive — <strong>evite print de tela</strong>, a foto perde qualidade e resolução. Baixar direto do Drive garante o arquivo original.</p>
+        <p class="guide-note so-drive">Não compartilhe o link do Drive diretamente — quem tiver esse link consegue acessar. Para compartilhar esta galeria, use o botão <strong>Compartilhar</strong> no rodapé da página.</p>
         ${igCreditButtonHTML('2')}
         ${event.eventCredits ? `<p class="guide-note guide-credit">Em colaboração com: <strong>${escape(event.eventCredits)}</strong></p>` : ''}
       </div>
@@ -687,6 +704,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           com o campo embaixo o texto digitado depois do aceite era descartado
           em silêncio — o estado já ficava "ready" e não há um segundo pedido.
         -->
+        <div class="gate-aceite">
         <button type="button" id="drive-name-toggle" class="drive-name-toggle" style="margin-top:0;margin-bottom:.625rem" data-action="toggleDriveName">+ incluir meu nome (opcional)</button>
         <div id="drive-name-wrap" class="rem-field" style="display:none;margin-top:0;margin-bottom:.75rem">
           <input type="text" id="drive-name" placeholder="Seu nome (opcional)" maxlength="120" autocomplete="name" aria-label="Seu nome" data-onchange="onDriveConsent">
@@ -701,6 +719,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <span>Li e aceito os <a href="/termos" target="_blank" rel="noopener">Termos de Uso</a> e autorizo o uso da minha imagem conforme descrito neles.</span>
         </label>
         <p id="drive-gate-hint" style="display:none"></p>
+        </div>
         <div id="drive-verify-error" class="drive-verifying" style="display:none">
           <p class="dv-msg">Verificação de segurança demorando mais que o esperado. Desative o bloqueador de anúncios ou a VPN para este site e recarregue a página — ou <button type="button" data-action="showDriveEmail" class="dv-retry">receba um código por e-mail</button>.</p>
           <p class="dv-contact">Se continuar, <a href="/suporte">fale comigo</a> ou, se for urgente, <a href="https://wa.me/5511989211178" target="_blank" rel="noopener">me chame no WhatsApp</a>.</p>
@@ -734,11 +753,18 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
           <p class="dv-msg">Esta página ficou aberta por um tempo e precisou ser atualizada. É só confirmar de novo abaixo.</p>
         </div>
         ${galeriaPublica
-          ? `<a id="galeria-link" href="/galeria/${escape(event.slug)}" class="btn-drive-go" style="margin-top:1rem">Ver as fotos e baixar aqui no site</a>`
-          : '<a id="galeria-link" href="#" class="btn-drive-go" style="display:none;margin-top:1rem">Ver as fotos e baixar aqui no site</a>'}
+          ? `<a id="galeria-link" href="/galeria/${escape(event.slug)}" class="btn-drive-go so-galeria"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>Abrir a galeria</a>`
+          : ''}
         <div id="drive-links-wrap" class="drive-locked" style="margin-top:1rem">
+        ${temGaleria && !galeriaPublica
+          ? `<a id="galeria-link" href="#" class="btn-drive-go so-galeria" style="margin-top:0" data-action="galeriaLink">
+              <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg></span>
+              <span class="btn-spin"><span class="spin"></span></span>
+              Abrir a galeria
+            </a>`
+          : ''}
         ${event.driveUrlInstagram || hasVideos
-          ? `<div class="drive-opts">
+          ? `<div class="drive-opts so-drive">
               <a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-opt" data-action="driveLink">
                 <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
                 <span class="btn-spin"><span class="spin"></span></span>
@@ -757,15 +783,18 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
                 <div class="drive-opt-text"><strong>Só os vídeos</strong><span>Para quem já baixou as fotos</span></div>
               </a>` : ''}
             </div>`
-          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go" data-action="driveLink">
+          : `<a id="drive-link" href="#" target="_blank" rel="noopener" class="btn-drive-go so-drive" data-action="driveLink">
               <span class="btn-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
               <span class="btn-spin"><span class="spin"></span></span>
               Ir para o Google Drive
             </a>`}
         </div>
-        <p id="galeria-tip" class="drive-dl-tip"${galeriaPublica ? '' : ' style="display:none"'}><strong>Novo:</strong> toque em <strong>"Ver as fotos e baixar aqui no site"</strong>. Lá você vê todas as fotos, marca as que quiser com o <strong>coração</strong> e baixa pelas <strong>Favoritas</strong> (ou <strong>Baixar tudo</strong>) e baixa <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou em <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
-        <p class="drive-dl-tip">No Drive, selecione todas as fotos (ícone ⋮ ou Ctrl/Cmd+A) e use <strong>"Fazer download"</strong> para baixar tudo de uma vez em um .zip.</p>
-        <p class="drive-consent-note">Ao acessar, registramos data, hora e dados técnicos do acesso para comprovação, conforme a <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
+        <p class="drive-dl-tip so-drive">No Drive, selecione todas as fotos (ícone ⋮ ou Ctrl/Cmd+A) e use <strong>"Fazer download"</strong> para baixar tudo de uma vez em um .zip.</p>
+        ${temGaleria ? `<div class="modo-troca">
+          <button type="button" class="btn-drive-alt so-galeria" data-action="modoDrive">Prefere o Google Drive? Abrir no Drive</button>
+          <button type="button" class="btn-drive-alt so-drive" data-action="modoGaleria">Ver as fotos aqui no site</button>
+        </div>` : ''}
+        <p class="drive-consent-note gate-aceite">Ao acessar, registramos data, hora e dados técnicos do acesso para comprovação, conforme a <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
       </div>
     </div>
   </div>
@@ -894,6 +923,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
     // Daqui até o fecha-script tudo vive dentro de um template literal: uma
     // crase solta, em comentário ou string, encerra a string e quebra o módulo.
     const EVENT_SLUG     = ${slugJSON};
+    const TEM_GALERIA    = ${temGaleria ? 'true' : 'false'};
+    const GALERIA_LIVRE  = ${galeriaPublica ? 'true' : 'false'};
     const EVENT_TITLE    = ${jsonParaScript(event.title || '')};
     // Nonce assinado para ESTE slug — impede que um token Turnstile válido
     // seja reaproveitado pra varrer os slugs do site sem carregar a página.
@@ -1020,7 +1051,11 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (!el) return;
       switch (el.dataset.action) {
         case 'openSoonModal': openSoonModal(); break;
-        case 'openModal': openModal(); break;
+        case 'openModal': openModal('drive'); break;
+        case 'openGaleria': e.preventDefault(); openModal('galeria'); break;
+        case 'modoDrive': setModoModal('drive'); break;
+        case 'modoGaleria': setModoModal('galeria'); break;
+        case 'galeriaLink': onGaleriaLinkClick(e); break;
         case 'closeModal': closeModal(); break;
         case 'doNativeShare': doNativeShare(); break;
         case 'copyLink': copyLink(); break;
@@ -1217,10 +1252,43 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       turnstile.execute(driveWidgetId);
     }
 
-    // ---- Drive modal (Terms-gated, low-friction) ----
-    function openModal() {
+    // ---- Janela das fotos: modo galeria ou Drive (Terms-gated, low-friction) ----
+    // O portão (aceite + Turnstile) só arma quando o modo precisa dele: no
+    // Drive sempre, na galeria só dos álbuns restritos. Trocar de modo com a
+    // janela aberta não zera o aceite já dado.
+    let portaoAtivo = false;
+    function openModal(modo) {
       lastFocused = document.activeElement;
       clearCtaAttn();
+      document.getElementById('modal').classList.add('open');
+      document.body.style.overflow = 'hidden';
+      updateStickyCta();
+      setModoModal(modo === 'galeria' && TEM_GALERIA ? 'galeria' : 'drive');
+    }
+    function setModoModal(modo) {
+      const m = document.getElementById('modal');
+      const galeria = modo === 'galeria' && TEM_GALERIA;
+      m.classList.toggle('modo-galeria', galeria);
+      if ((!galeria || !GALERIA_LIVRE) && !portaoAtivo) {
+        portaoAtivo = true;
+        iniciaPortao();
+      }
+      focaModo();
+    }
+    // Foco no botão que abre o que a pessoa escolheu, quando ele já vale.
+    function focaModo() {
+      const galeria = document.getElementById('modal').classList.contains('modo-galeria');
+      const alvo = document.getElementById(galeria ? 'galeria-link' : 'drive-link');
+      if (alvo && ((galeria && GALERIA_LIVRE) || driveLinkState === 'ready')) alvo.focus();
+    }
+    function onGaleriaLinkClick(e) {
+      if (driveLinkState !== 'ready') { e.preventDefault(); handleBlockedDriveClick(); return; }
+      const gal = document.getElementById('galeria-link');
+      // Liberou sem passe da galeria (servidor sem a chave da API do Drive):
+      // o Drive é o caminho que sobra.
+      if (!gal || gal.getAttribute('href') === '#') { e.preventDefault(); setModoModal('drive'); }
+    }
+    function iniciaPortao() {
       const consent = document.getElementById('drive-consent');
       const declaration = document.getElementById('drive-declaration');
       const nameWrap = document.getElementById('drive-name-wrap');
@@ -1231,9 +1299,6 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       if (nameInput) nameInput.value = '';
       document.getElementById('drive-verify-error').style.display = 'none';
       hideAdblockWarn('drive-adblock');
-      document.getElementById('modal').classList.add('open');
-      document.body.style.overflow = 'hidden';
-      updateStickyCta();
 
       // Already granted earlier this page session — skip straight to ready,
       // no re-fetch, no re-wait.
@@ -1471,7 +1536,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
 
       var note = document.getElementById('drive-refreshed-note');
       if (note) note.style.display = '';
-      openModal();
+      openModal(TEM_GALERIA ? 'galeria' : 'drive');
     }
 
     // Contagem do 429. Termina pondo o estado em 'idle' e pedindo de novo:
@@ -1597,10 +1662,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         wrap.classList.remove('drive-locked', 'drive-loading');
         if (err) err.style.display = 'none';
         const primary = document.getElementById('drive-link');
-        if (primary) {
-          primary.href = (data && data.driveUrl) || '#';
-          primary.focus();
-        }
+        if (primary) primary.href = (data && data.driveUrl) || '#';
         const ig = document.getElementById('drive-link-ig');
         if (ig) ig.href = (data && data.driveUrlInstagram) || '#';
         const videos = document.getElementById('drive-link-videos');
@@ -1608,10 +1670,8 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
         const gal = document.getElementById('galeria-link');
         if (gal && data && typeof data.galeriaUrl === 'string' && data.galeriaUrl.indexOf('/galeria/') === 0) {
           gal.href = data.galeriaUrl;
-          gal.style.display = '';
-          const galTip = document.getElementById('galeria-tip');
-          if (galTip) galTip.style.display = '';
         }
+        focaModo();
         driveAttnTimer = setTimeout(function() { wrap.classList.add('drive-attn'); }, 7000);
       } else if (state === 'error') {
         wrap.classList.add('drive-locked');
@@ -1702,6 +1762,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
       i.title = 'Nome registrado com o seu consentimento.';
     }
     function closeModal() {
+      portaoAtivo = false;
       document.getElementById('modal').classList.remove('open');
       document.body.style.overflow = '';
       clearDriveAttn();
