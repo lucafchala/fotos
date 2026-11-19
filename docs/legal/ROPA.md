@@ -6,7 +6,7 @@ tratamento que realizar.
 - **Controlador:** Luca Ferriani Chala — pessoa natural, atividade de fotografia.
 - **Canal do encarregado / titular:** privacidade@lucafchala.com
 - **Sistema:** `fotos.lucafchala.com` — Cloudflare Worker único (`src/`), armazenamento em Cloudflare KV, Cloudflare D1 e Durable Objects (contadores e limites). Desde a v2.0 há também um **ambiente de prévia** com armazenamento próprio (seção 10).
-- **Última revisão:** 2026-11-14 (buscadores, IndexNow e treino de IA nos álbuns públicos)
+- **Última revisão:** 2026-11-17 (R2 no leste da América do Norte; finalidade da busca nas fotos: a moderação só avisa; antes, 2026-11-14: buscadores, IndexNow e treino de IA nos álbuns públicos)
 - **Fonte da verdade técnica:** `src/index.js` (rotas, retenção), `src/utils.js` (persistência), `src/drive.js` (leitura das pastas do Drive pela galeria própria), `src/snapshot.js` e `src/sumiram.js` (cópia da lista e fotos apagadas, seção 11), `migrations/` (esquema do D1).
 
 ---
@@ -223,7 +223,7 @@ Código em `src/busca.js` e `scripts/rosto-indexa.mjs`; guia em [`docs/ROSTO.md`
 | --- | --- |
 | **Dados** | Por foto pública do álbum: as **palavras** que aparecem nela (número de camisa, faixa, crachá, placa), as **"coisas" e cenas** reconhecidas (palco, bolo, bola) e os **rótulos de moderação** (por exemplo, gesto obsceno), mais o capítulo e o nome do autor da foto, como nos créditos. Nenhum rosto, nenhuma imagem guardada. A busca do visitante (as palavras digitadas) não é guardada. |
 | **Titulares** | Pessoas retratadas nas fotos do álbum, inclusive menores (um nome num crachá pode aparecer no texto lido). |
-| **Finalidade** | Achar fotos no álbum pelo que aparece nelas; esconder automaticamente, até a decisão do controlador, foto enviada pela turma que pareça imprópria. |
+| **Finalidade** | Achar fotos no álbum pelo que aparece nelas; avisar o controlador, por e-mail, de foto que pareça imprópria, para ele decidir se oculta (desde a v3.8.12 o site não esconde nada sozinho; antes escondia até a decisão). |
 | **Base legal** | Legítimo interesse (art. 7º, IX), o mesmo da publicação do álbum ([`LIA.md`](./LIA.md)): o texto lido é o que qualquer pessoa já vê na foto pública. A moderação é medida de proteção dos retratados, especialmente de menores (art. 14). |
 | **Retenção** | Enquanto a foto estiver no álbum. Foto oculta ou removida sai da busca na execução seguinte do indexador; apagar o projeto apaga a busca dele (tabela `busca_foto`, D1). |
 | **Compartilhamento** | **Amazon Web Services (Amazon Rekognition)**, região sa-east-1 (São Paulo), como operadora, com o opt-out de treino de IA ativado: DetectText, DetectLabels e DetectModerationLabels, uma vez por foto, a partir da miniatura pública. O resultado fica no D1 da Cloudflare. |
@@ -270,7 +270,7 @@ Código em `src/envio.js` (o caminho até o Drive) e `src/ui/enviar.js` (a pági
 | Operador | O que recebe | Onde | Detalhe |
 | --- | --- | --- | --- |
 | Google (Drive) | As fotografias | EUA / global | [`transferencia-internacional.md`](./transferencia-internacional.md) |
-| Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics | EUA / global (edge) | idem |
+| Cloudflare | Todo o tráfego, KV, D1, Turnstile, Analytics; cópias das fotos no R2 | EUA / global (edge); R2 no leste da América do Norte (ENAM) | idem |
 | Resend | E-mails transacionais (e-mail, telefone, mensagem, foto anexa; e-mail do código de acesso) | EUA | idem |
 | Google (YouTube) | IP/navegador ao carregar a miniatura de um projeto com vídeo; o player só depois do play | EUA / global | idem |
 | Google (player do Drive) | IP/navegador e dados de reprodução, **só depois do toque** num vídeo da galeria | EUA / global | idem |
