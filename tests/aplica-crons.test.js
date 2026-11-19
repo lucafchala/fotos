@@ -1,7 +1,7 @@
 // O deploy aplica os crons do wrangler.toml — scripts/aplica-crons.mjs.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { cronsDoToml, cronsDaApi, mesmosCrons, aplicaCrons } from '../scripts/aplica-crons.mjs';
+import { cronsDoToml, cronsDaApi, mesmosCrons, aplicaCrons, CRONS_DO_WORKER } from '../scripts/aplica-crons.mjs';
 
 /** Uma API falsa: guarda os agendamentos e anota as chamadas. */
 function apiFalsa(inicial, op = {}) {
@@ -24,6 +24,9 @@ describe('cronsDoToml', () => {
   });
   it('o wrangler.toml de verdade pede o cron de 5 em 5 minutos', () => {
     expect(cronsDoToml(readFileSync('wrangler.toml', 'utf8'))).toEqual(['*/5 * * * *']);
+  });
+  it('CRONS_DO_WORKER bate com o wrangler.toml (o que vai para a API é a constante)', () => {
+    expect(mesmosCrons(cronsDoToml(readFileSync('wrangler.toml', 'utf8')), [...CRONS_DO_WORKER])).toBe(true);
   });
   it('sem crons, ou com lixo, reprova', () => {
     expect(() => cronsDoToml('[vars]\nA = "1"\n')).toThrow(/sem `crons`/);

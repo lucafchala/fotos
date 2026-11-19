@@ -19,12 +19,21 @@
 // relê e confere; diferença ou erro da API reprovam o passo (o deploy já foi
 // promovido, mas o vermelho avisa; os crons não podem divergir em silêncio).
 //
+// O que vai para a API é a constante CRONS_DO_WORKER, revisada no código, e
+// não o texto lido do arquivo: o wrangler.toml só é comparado com ela, e a
+// diferença reprova o passo (e o teste). Assim nada do repositório vira corpo
+// de requisição sem passar por revisão (alerta do CodeQL "File data in
+// outbound network request" no #352).
+//
 // Uso (no deploy.yml): node scripts/aplica-crons.mjs
 // Lê CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID e WORKER_NAME do ambiente.
 
 import { readFileSync, appendFileSync } from 'node:fs';
 
 const API = 'https://api.cloudflare.com/client/v4';
+
+/** Os crons do Worker. Mude junto com `[triggers] crons` do wrangler.toml. */
+export const CRONS_DO_WORKER = Object.freeze(['*/5 * * * *']);
 
 /**
  * Os crons de `[triggers]` do topo do wrangler.toml (não os de um `[env.x]`).
@@ -106,8 +115,11 @@ if (process.argv[1] && process.argv[1].endsWith('aplica-crons.mjs')) {
   const fala = (/** @type {string} */ s) => { console.log(s); if (resumo) appendFileSync(resumo, `${s}\n`); };
   try {
     if (!token || !conta || !worker) throw new Error('faltam CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID ou WORKER_NAME');
-    const desejados = cronsDoToml(readFileSync('wrangler.toml', 'utf8'));
-    const r = await aplicaCrons({ conta, worker, token, desejados });
+    const doToml = cronsDoToml(readFileSync('wrangler.toml', 'utf8'));
+    if (!mesmosCrons(doToml, [...CRONS_DO_WORKER])) {
+      throw new Error(`o wrangler.toml pede ${JSON.stringify(doToml)} e CRONS_DO_WORKER (scripts/aplica-crons.mjs) tem ${JSON.stringify(CRONS_DO_WORKER)}: mude os dois juntos`);
+    }
+    const r = await aplicaCrons({ conta, worker, token, desejados: [...CRONS_DO_WORKER] });
     fala(r.mudou
       ? `Crons do Worker atualizados: ${JSON.stringify(r.antes)} → ${JSON.stringify(r.depois)}`
       : `Crons do Worker já batem com o wrangler.toml: ${JSON.stringify(r.antes)}`);
