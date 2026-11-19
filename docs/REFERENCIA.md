@@ -2149,6 +2149,33 @@ arquivo com UMA palavra qualquer a mais (só letras; número nunca), com `-`, `_
 igual sempre ganha de sufixo; com nomes repetidos em subpastas, vale o da mesma
 subpasta e, na falta, o primeiro em ordem natural. Sem par: sem "para redes".
 
+### Pré-cópia para o R2 (4.9.0)
+
+A conta do Drive é pessoal, e o Google trava o download de um arquivo quando
+muita gente o baixa ao mesmo tempo (`downloadQuotaExceeded`, #233). Desde a
+3.8.3 o original vai para o R2 (`o/<id>`) no primeiro download e os seguintes
+saem de lá; o furo era o primeiro, que no lançamento é de todo mundo junto.
+
+`src/precopia.js` fecha o furo: o cron (a cada 5 min) copia para o R2 o álbum
+inteiro dos slugs em `R2_PRECOPIA_SLUGS` (`wrangler.toml`, separados por
+vírgula) — o original de cada foto e vídeo de cada capítulo, o vídeo de cada
+Live Photo e a pasta do Instagram (primeiro, por ser a mais baixada no
+celular). Fica de fora a foto oculta e o arquivo acima de `R2_ORIGINAL_MAX`.
+O download (`baixaDaGaleria`) não mudou: ele já procura no R2 antes do Google.
+
+- **Ritmo:** por execução, até `PRECOPIA_POR_VEZ` arquivos (4 de cada vez),
+  3 GB ou 2 min; o progresso fica em `precopia:<slug>` no KV. O que já está no
+  R2 é lido por listagem do prefixo `o/` (1000 chaves por chamada), nunca um
+  `head` por foto. Um álbum de 5 mil fotos fica pronto em menos de um dia.
+- **Depois de pronto:** recomeça a cada 6 h (`PRECOPIA_A_CADA_MS`) para pegar
+  as fotos novas; o que já está lá não é baixado de novo.
+- **Google recusou ("limite"):** a execução para e tenta na próxima.
+- **Custo:** ~US$ 0,015 por GB por mês, os primeiros 10 GB grátis, sem tarifa
+  de saída; ~60 GB ≈ US$ 0,75 por mês. As gravações são uma por arquivo.
+- **Andamento:** `precopia` no `/api/healthz` (`albuns`, `completos`,
+  `copiados`, `noR2`), só números. Sem R2 (a prévia), `null` e nada roda.
+- Ocultar ou remover uma foto continua apagando a cópia (`apagaCopiasDaFoto`).
+
 ### Custo
 
 A listagem fica 10 min (`GALERIA_LISTA_TTL_S`) na memória do isolate e na Cache

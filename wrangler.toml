@@ -81,6 +81,12 @@ WORKERS_PLANO = "pago"
 # confirmamos que [previews.vars] não herda [vars]). Testes e o Worker local
 # não têm a variável.
 INDEXNOW = "ligado"
+# Pré-cópia dos originais para o R2 (v4.9.0, src/precopia.js): o cron copia o
+# álbum inteiro antes do lançamento, para o download nem chegar ao Google (a
+# conta do Drive é pessoal e trava com muita gente baixando, #233). Slugs
+# separados por vírgula. Custo: ~US$ 0,015/GB/mês (10 GB grátis). Na prévia
+# não faz nada (ela não tem R2).
+R2_PRECOPIA_SLUGS = "entrenos2026"
 
 [[kv_namespaces]]
 binding = "FOTOS"

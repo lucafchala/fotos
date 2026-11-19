@@ -18,7 +18,20 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.8.0] — ainda não publicada
+## [4.9.0] — ainda não publicada
+
+Menor: o álbum inteiro no R2 antes do lançamento (pedido do dono, 19/11/2026:
+a conta do Drive é pessoal e trava com muita gente baixando).
+
+- **Pré-cópia dos originais para o R2.** O cron copia, aos poucos, cada foto,
+  vídeo, vídeo de Live Photo e versão "para redes" dos álbuns em
+  `R2_PRECOPIA_SLUGS` (hoje `entrenos2026`). No lançamento o download sai do
+  R2 e nem chega ao Google, que é quem dava "muitos usuários baixaram este
+  arquivo". Foto oculta fica de fora. Custa perto de US$ 1 por mês para um
+  álbum de 60 GB (src/precopia.js; docs/REFERENCIA.md, "Pré-cópia para o R2").
+- **`/api/healthz`:** campo novo `precopia`, com o andamento em números.
+
+## [4.8.0] — 2026-11-19
 
 Menor: download sem perguntar quando não há o que escolher (pedido do dono,
 19/11/2026).

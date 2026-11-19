@@ -41,6 +41,7 @@ import { FONTS } from './content/fonts.js';
  *   INDEXNOW?: string,
  *   PREVIA_EMAIL?: string,
  *   FOTOS_R2?: R2Bucket,
+ *   R2_PRECOPIA_SLUGS?: string,
  * }} Env
  */
 
