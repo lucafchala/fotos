@@ -110,7 +110,7 @@ export const DRIVE_CLICK_BUCKET = { capacity: 1000, perHour: 200 };
 // baixadas — o dia de um evento de 750 pessoas fica em ~45 mil das 100 mil
 // linhas/dia do plano gratuito (TODO.md).
 export const GALERIA_BAIXAR_BUCKET = { capacity: 6000, perHour: 20000 };
-// O vídeo tocado no site (v4.3.0, rota /video/): um balde próprio, com os
+// O vídeo tocado no site (v4.4.0, rota /video/): um balde próprio, com os
 // mesmos números — tocar e pular para o meio do vídeo são pedidos com Range,
 // e um vídeo assistido não pode gastar a ficha de quem quer baixar.
 export const GALERIA_VIDEO_BUCKET = { capacity: 6000, perHour: 20000 };
@@ -494,7 +494,7 @@ export const GALERIA_LARGURAS_GRADE = [200, 300, 400, 500, 600, 700, 800, 1000, 
 // teto em 2× ele pede a de 800–1000 (119–172 KB, de 30 a 50% a menos), e a
 // diferença não aparece num quadradinho desse tamanho. A foto aberta no
 // visualizador NÃO tem teto: lá vale a tela inteira, e o zoom sobe o degrau.
-// v4.3.0: a grade passou a abrir na densidade CHEIA (pedido do dono:
+// v4.4.0: a grade passou a abrir na densidade CHEIA (pedido do dono:
 // qualidade máxima que a tela permite). Este teto virou o "modo leve", que o
 // script da grade só liga se o aparelho travar (tarefas longas seguidas ou
 // miniaturas da tela demorando); a pré-carga do LCP é sempre a cheia.
@@ -626,10 +626,11 @@ export const ROSTO_BUSCA_IP_BUCKET = { capacity: 300, perHour: 300 };
 // excesso gastava uma ficha: o teto acabava em recusas. Agora a ficha de uma
 // busca recusada com "devagar" é devolvida (handleRosto), e o balde conta
 // buscas que a AWS aceitou.
-// Custo: uma busca são de 1 a 6 chamadas de US$ 0,001 (quem saiu, o álbum e
-// até ROSTO_SEMENTES sementes; em geral 2 ou 3). O dia do lançamento, cheio:
-// 4.500 buscas, de US$ 9 a US$ 27. O pior dia possível (balde cheio mais 24 h
-// de reposição, todas com 6 chamadas): 6.900 buscas, US$ 41.
+// Custo: uma busca são de 1 a 6 chamadas de US$ 0,0013 (o preço em sa-east-1,
+// conferido na conta em 18/11/2026: quem saiu, o álbum e até ROSTO_SEMENTES
+// sementes; em geral 2 ou 3). O dia do lançamento, cheio: 4.500 buscas, de
+// US$ 12 a US$ 35. O pior dia possível (balde cheio mais 24 h de reposição,
+// todas com 6 chamadas): 6.900 buscas, US$ 54.
 export const ROSTO_PUBLICO_DO_DIA = 1500;
 export const ROSTO_BUSCAS_POR_PESSOA = 3;
 export const ROSTO_BUSCA_GLOBAL_BUCKET = { capacity: ROSTO_PUBLICO_DO_DIA * ROSTO_BUSCAS_POR_PESSOA, perHour: 100 };
@@ -695,9 +696,10 @@ export const GALERIA_MINIATURA_TENTATIVAS = 2;
 // Quantas fotos o indexador processa por DIA (UTC) em cada álbum (v3.8.10). A
 // pasta do álbum recebe fotos da turma por um ano, por link aberto: sem teto,
 // alguém despejando arquivos fazia o indexador pagar por todos (até 4 chamadas
-// de US$ 0,001 por foto, 3.000 fotos por execução, uma execução a cada 10 min:
-// mais de mil dólares num dia). Com o teto, o pior dia custa
-// ROSTO_FOTOS_POR_DIA × US$ 0,004 por álbum. O que passar fica para o dia
+// de US$ 0,0013 por foto, 3.000 fotos por execução, uma execução a cada 10 min:
+// mais de dois mil dólares num dia). Com o teto, o pior dia custa
+// ROSTO_FOTOS_POR_DIA × US$ 0,0052 por álbum (US$ 10,40), ou menos com
+// ROSTO_LEITURAS (só "coisas": 2 chamadas por foto) e a variável ROSTO_MAX_DIA. O que passar fica para o dia
 // seguinte, e o log do indexador diz. Para a primeira indexação de um álbum
 // grande, a variável ROSTO_MAX_DIA do workflow sobe o teto naquele dia.
 export const ROSTO_FOTOS_POR_DIA = 2000;

@@ -340,9 +340,9 @@ Cobre:
 - **grade por aparelho** — desktop 1440@1, Retina 1440@2, iPhone 390@3,
   Android 360@2 e Pixel 412@2,625: linhas justificadas (cada uma fecha na
   largura, ±2 px), miniatura na densidade cheia da tela (largura × DPR real,
-  sem o modo leve, desde a 4.3.0), carga preguiçosa, WebP, sem rolagem
+  sem o modo leve, desde a 4.4.0), carga preguiçosa, WebP, sem rolagem
   lateral; tema escuro;
-- **rede muito ruim** (4.3.0, cenários "Rede muito ruim: 2G" e "…: medida")
+- **rede muito ruim** (4.4.0, cenários "Rede muito ruim: 2G" e "…: medida")
   — com o Chrome anunciando 2G, ou com as primeiras miniaturas levando 6,5 s,
   a página entra no modo (`#g-main[data-rede]`), a tela pede primeiro a
   versão de 1 pixel por pixel da tela, e depois as da tela sobem para a
@@ -367,7 +367,7 @@ Cobre:
   comum, botões com 44 px ou mais; sem `canShare` de arquivos, só "Baixar
   arquivo". O nome exato no cabeçalho e a passagem dos bytes pelo servidor
   estão em `tests/galeria.test.js`;
-- **favoritas** (4.3.0: o coração é a única marca) — não há botão
+- **favoritas** (4.4.0: o coração é a única marca) — não há botão
   "Selecionar", barra de seleção nem ✓; o coração da miniatura marca sem
   abrir a foto, e o leitor de tela ouve "favorita"; com o filtro ligado, o
   topo oferece "Baixar" e "Compartilhar". Com uma foto sem versão do
@@ -390,7 +390,7 @@ Cobre:
   por e-mail"), a foto **continua** na grade (o pedido não a esconde) e o
   visualizador segue, recusa 403, Turnstile bloqueado, 360 px, tema escuro e
   o dono sem link;
-- **vídeos e Live Photos** (item 1f; tocado no site desde a 4.3.0) — selo de
+- **vídeos e Live Photos** (item 1f; tocado no site desde a 4.4.0) — selo de
   play com a duração e selo LIVE na grade; nada de vídeo nem do Google antes
   de abrir. No visualizador o vídeo toca pela rota do site (mudo, em loop,
   inline, sem controles nativos, ocupando o slide), sem nada do Drive; o
@@ -406,7 +406,7 @@ Cobre:
   tela pedidas ao carregar, refazer a grade (`resize`) em menos de 250 ms e,
   depois de rolar 12 mil px, menos da metade pedida e poucas tarefas longas
   (o roteiro reprova se a carga preguiçosa virar ansiosa). Com a grade
-  virtual (4.3.0), confere também que menos da metade das fotos fica no DOM,
+  virtual (4.4.0), confere também que menos da metade das fotos fica no DOM,
   no começo e no fim, e que a última foto está lá. `MEDE_GRADE=1` acrescenta
   os cenários "Medida N" (300, 1.300 e 3.000 fotos, CPU 4×), que não
   reprovam: imprimem o tempo até a grade, as tarefas longas e os elementos;
@@ -425,7 +425,7 @@ Cobre:
   foi ao console.
 
 152 checagens em 30/10/2026 (6 delas do axe, §Acessibilidade); 403 em
-17/11/2026, na 4.3.0. O axe espera a folha de download terminar de entrar:
+17/11/2026, na 4.4.0. O axe espera a folha de download terminar de entrar:
 medido no meio da transição, o contraste saía misturado com o fundo.
 `SO_CENARIO=<trecho> npm run verifica:galeria` roda só os cenários com o
 trecho no nome. O PhotoSwipe (visualizador) roda sob a CSP estrita

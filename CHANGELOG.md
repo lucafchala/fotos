@@ -141,7 +141,7 @@ depois do #323 (4.3.0, visual).
   `SO_CENARIO=<trecho>` roda só os cenários com o trecho no nome.
 - O "zerar" da prévia passou a zerar também o limite do vídeo.
 
-## [4.3.0] — ainda não publicada
+## [4.3.0] — 2026-11-19
 
 Menor: o fotos.lucafchala.com e o álbum Entre Nós com o visual revisado. Só
 aparência: rotas, ids, downloads, busca pelo rosto, envio e dados ficam iguais.
@@ -185,7 +185,47 @@ Painel e páginas legais não mudam.
   - o título e a contagem do "Em breve" continuam grandes, em peso 800, com o
     kicker e os rótulos em maiúsculas espaçadas.
 
-## [4.1.6] — ainda não publicada
+## [4.2.1] — 2026-11-19
+
+Política de Privacidade: o que a "busca nas fotos" faz. **Texto jurídico para
+o dono revisar antes do merge.**
+
+- **Seção nova, 3.3 "Busca nas fotos e moderação".** Desde a 3.7, nos álbuns
+  com "Procurar nas fotos", cada foto pública é lida uma vez pela Amazon
+  Rekognition (palavras, coisas e cenas, checagem de conteúdo impróprio). O
+  ROPA (seção 14) e o RIPD (R10) já diziam isso; a Política, que é o que a
+  pessoa lê, dizia só que a Amazon "compara a selfie". Agora conta o que é
+  lido, o que fica guardado, que não envolve rosto, que a moderação só avisa
+  o responsável, por quanto tempo e a base legal. A lista de operadores
+  (seção 4) e "Decisões automatizadas" (4.2) foram ajustadas.
+- **Onde ficam as cópias na Cloudflare.** O bucket R2 `fotos-album`, criado
+  em 08/11/2026, está no leste da América do Norte (ENAM). A Política passa
+  a dizer isso no parágrafo de transferência internacional, e a avaliação de
+  transferência (`docs/legal/transferencia-internacional.md`) troca o "o
+  controlador deve conferir" pela localização conferida.
+- **O botão da busca pelo rosto com o nome da tela**: "Achar minhas fotos
+  pelo rosto" (a Política dizia "Procurar meu rosto").
+- **ROPA, seção 14:** a finalidade ainda dizia que a moderação escondia a
+  foto sozinha; desde a 3.8.12 ela só avisa o controlador.
+
+## [4.2.0] — 2026-11-19
+
+O erro do indexador da busca pelo rosto, por inteiro, no painel (#299).
+
+- **A mensagem inteira, em particular.** O log do Actions é público e por isso
+  só diz o *tipo* do erro ("AWS InvalidImageFormatException", "TypeError").
+  Foi assim que a falha de 17/11/2026 ficou sem causa. Agora o indexador manda
+  ao site, com o token dele (`POST /api/busca/erro`), a primeira mensagem
+  inteira de cada tipo, quantas vezes ele aconteceu e, no erro que para a
+  execução, a mensagem com a causa (o "fetch failed" do Node esconde o
+  `ECONNRESET` dentro de `cause`). O log público continua só com contagens.
+- **Onde ver.** No painel, no projeto, "Quem saiu da busca e erros do
+  indexador": os erros dos últimos 30 dias (os 30 mais recentes). O
+  `/api/healthz`, que é público, não os mostra.
+- Sem o token, `/api/busca/erro` responde o 404 de rota inexistente, como
+  `/api/busca/estado`. `tests/rosto-indexador.test.js` cobre os dois lados.
+
+## [4.1.6] — 2026-11-18
 
 Acessibilidade na página de suporte (`/suporte`).
 

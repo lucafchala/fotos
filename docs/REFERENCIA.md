@@ -1876,11 +1876,11 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
 - **Grade justificada**: cada foto na proporção real, sem recorte; uma seção por
   subpasta (até 2 níveis), em ordem natural (`2.jpg` antes de `10.jpg`).
   Miniaturas do `lh3` na largura × DPR real do aparelho (densidade cheia,
-  4.3.0), WebP decidido por decodificação de verdade, carga preguiçosa. O
+  4.4.0), WebP decidido por decodificação de verdade, carga preguiçosa. O
   teto de 2× da 4.0.1 (`MINIATURA_DPR_TETO`) virou o **modo leve**, que só
   liga se o aparelho travar (ver *Densidade, modo leve e rede ruim* abaixo).
   O visualizador não tem teto.
-- **Grade virtual (4.3.0)**: as linhas ficam em blocos de altura fixa e só os
+- **Grade virtual (4.4.0)**: as linhas ficam em blocos de altura fixa e só os
   blocos perto da tela têm miniaturas (um `IntersectionObserver` por bloco).
   A abertura cria só os blocos das primeiras telas; o resto fica num calço
   com a mesma altura, completado no tempo ocioso. Na rolagem, os blocos **na**
@@ -1893,7 +1893,7 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
   `#foto=<id>` como link direto para uma foto. O **voltar** do celular fecha a
   camada de cima (a folha de download, depois a foto) em vez de sair da
   galeria — como num app. **Compartilhar** manda o link da foto (`?foto=`),
-  não o arquivo. **Vídeo** (4.3.0) toca no próprio visualizador, num
+  não o arquivo. **Vídeo** (4.4.0) toca no próprio visualizador, num
   `<video>` servido por `/galeria/<slug>[/<capítulo>]/video/<id>` com `Range`.
   A rota tem as mesmas checagens do download e um limite por IP próprio
   (`GALERIA_VIDEO_BUCKET`), e o primeiro play copia o vídeo para o R2. Se ela
@@ -1915,7 +1915,7 @@ Sem a chave, a página mostra esse passo a passo, e nada mais muda.
   recusar os arquivos (`canShare`), cai sozinho no "Baixar arquivo". Ser iOS é a
   única checagem de plataforma da página (RETOMADA §5.13).
 - **Favoritas** (o coração; lembradas no `localStorage` do aparelho): desde
-  a 4.3.0, é a única marca, e a antiga "Seleção" (✓) foi juntada a elas. Com o
+  a 4.4.0, é a única marca, e a antiga "Seleção" (✓) foi juntada a elas. Com o
   filtro ligado, "Baixar" usa a mesma folha de download, uma foto por vez
   (nada de zip, que no celular não abre na galeria), e "Compartilhar" gera o
   link `#sel=` (ver *Compartilhar as favoritas*).
@@ -1943,7 +1943,7 @@ números do celular (alvo 300 px, 3 px entre fotos), só quando a linha é a
 mesma de 320 a 430 px de tela, não é a última da seção e não tem vídeo. Cada
 miniatura cresce na proporção dela (`--r`), então fecha justa sem o servidor
 saber a largura; o `sizes` pede a mesma densidade do script ao abrir (a
-cheia, desde a 4.3.0), para os dois pedirem o mesmo arquivo. As fontes do `<picture>` levam
+cheia, desde a 4.4.0), para os dois pedirem o mesmo arquivo. As fontes do `<picture>` levam
 `media="(max-width: 430px)"` e a `<img>` é um GIF vazio: no desktop a fileira
 fica escondida e nada baixa. O script tira a fileira (`#g-pre`) ao montar a
 grade. `tests/galeria-script.test.js` e `tests/galeria-fileira.test.js`
@@ -1983,7 +1983,7 @@ escada (`MINIATURA_DPR_DEGRAUS`, enviada em `D.dpr`): fator diferente nos dois
 lados baixaria a foto do LCP duas vezes, e o `verifica:galeria` reprova isso
 ("1 pedido só" a 390@3 e 412@2,625).
 
-**Densidade, modo leve e rede ruim (4.3.0).** A pedido do dono, a grade
+**Densidade, modo leve e rede ruim (4.4.0).** A pedido do dono, a grade
 voltou à densidade cheia. A pré-carga e a primeira fileira do servidor também
 pedem a cheia, sem os degraus de `min-resolution`. O fator fica gravado em
 cada foto quando ela pede o arquivo: mudar de modo vale para as próximas, e a

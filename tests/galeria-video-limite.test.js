@@ -1,4 +1,4 @@
-// O limite da rota de vídeo (v4.3.0) é um balde PRÓPRIO: com ele vazio, o
+// O limite da rota de vídeo (v4.4.0) é um balde PRÓPRIO: com ele vazio, o
 // vídeo responde 429, mas o download do mesmo arquivo continua funcionando —
 // assistir não gasta a ficha de quem quer baixar. O dono não tem limite.
 // Arquivo à parte porque troca o balde por um de 2 fichas (vi.mock vale para o

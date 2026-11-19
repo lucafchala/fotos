@@ -53,6 +53,17 @@ export async function verificaAxe(page, registra, nome, opcoes = {}) {
   const ignorar = opcoes.ignorar || [];
   const injetado = await page.evaluate(() => typeof (/** @type {any} */ (window)).axe !== 'undefined');
   if (!injetado) await page.evaluate(CODIGO_DO_AXE);
+  // Espera as animações e transições em curso acabarem (até 2 s; as infinitas,
+  // como um indicador de carregando, ficam de fora). Sem isso, o axe media a
+  // folha de download no meio do fade de entrada (opacity 0 → 1 em 0,2 s), com
+  // o fundo ainda misturado ao visualizador: contraste 4,36 numa execução e
+  // 5,x na seguinte. O que se quer medir é a tela parada, como a pessoa lê.
+  await page.evaluate(() => Promise.race([
+    Promise.all(document.getAnimations()
+      .filter(a => a.effect && a.effect.getTiming().iterations !== Infinity)
+      .map(a => a.finished.catch(() => null))),
+    new Promise(r => setTimeout(r, 2000)),
+  ]));
   const bruto = await page.evaluate(async ({ tags, contexto }) => {
     const axe = /** @type {any} */ (window).axe;
     const alvo = contexto ? (document.querySelector(contexto) || document) : document;

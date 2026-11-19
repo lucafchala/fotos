@@ -130,6 +130,50 @@ export function tipoDoErro(e) {
   return o instanceof Error && /^[A-Za-z]{1,40}$/.test(o.name) ? o.name : 'erro';
 }
 
+/**
+ * A mensagem INTEIRA de um erro, com a causa (o "fetch failed" do Node esconde
+ * o ECONNRESET em `cause`). NUNCA vai ao log: só ao site, em particular
+ * (mandaErros), para o dono ler no painel (R1, #299).
+ * @param {unknown} e
+ * @returns {string}
+ */
+export function mensagemDoErro(e) {
+  const partes = [];
+  let o = /** @type {any} */ (e);
+  for (let i = 0; o != null && i < 3; i++) {
+    const m = o instanceof Error ? `${o.name}: ${o.message}` : (typeof o === 'object' && typeof o.message === 'string' ? o.message : String(o));
+    const extra = o && typeof o === 'object' && typeof o.code === 'string' ? ` (${o.code})` : '';
+    partes.push(m + extra);
+    o = o && typeof o === 'object' ? o.cause : null;
+  }
+  return partes.join(' ← ').slice(0, 600);
+}
+
+/**
+ * Manda ao site os erros com a mensagem inteira (POST /api/busca/erro, com o
+ * token). Falhar aqui não derruba nada: o log público já tem o tipo.
+ * @param {string} site
+ * @param {string} slug '' quando o erro não é de um álbum
+ * @param {{ tipo: string, mensagem: string, vezes: number }[]} erros
+ */
+export async function mandaErros(site, slug, erros) {
+  const token = process.env.ROSTO_INDEXADOR_TOKEN || '';
+  if (!token || !erros.length || process.env.ROSTO_SECO === '1') return;
+  try {
+    const r = await fetch(`${site}/api/busca/erro`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': UA, 'X-Rosto-Indexador': token },
+      body: JSON.stringify({ slug, erros: erros.slice(0, 10) }),
+    });
+    if (!r.ok) console.log(`Os erros não foram guardados no site: HTTP ${r.status}.`);
+  } catch (e) {
+    console.log(`Os erros não foram guardados no site: ${tipoDoErro(e)}.`);
+  }
+}
+
+/** O slug do álbum em processamento, para o erro que derruba a execução. */
+let slugAtual = '';
+
 /** @param {string} url @param {string} oQue rótulo para o erro (sem o endereço) */
 async function pagina(url, oQue) {
   // Com ROSTO_INDEXADOR_TOKEN, lê também o álbum ainda em "Em breve" (antes do
@@ -373,6 +417,7 @@ export async function principal() {
   for (const [n, slug] of slugs.entries()) {
     // O rótulo do álbum no log: a posição na lista, nunca o slug.
     const album = `álbum ${n + 1} de ${slugs.length}`;
+    slugAtual = slug;
     const col = colecoes(slug).principal;
     const { todas: fotos, info, eventos, completo } = await fotosDoAlbum(site, slug);
     console.log(`${album}: ${fotos.size} fotos${eventos ? ` em ${eventos} eventos` : ''}.`);
@@ -456,6 +501,8 @@ export async function principal() {
     let rostos = 0;
     /** @type {Map<string, number>} as falhas, por tipo (nunca por foto) */
     const falhas = new Map();
+    /** @type {Map<string, string>} a 1ª mensagem inteira de cada tipo: só para o site, nunca para o log */
+    const primeiraMensagem = new Map();
     /** @type {any[]} */
     let lote = [];
     let marcadas = 0, escondidas = 0;
@@ -483,6 +530,7 @@ export async function principal() {
         // Só o TIPO entra na contagem: a chave da foto e a mensagem não vão ao log.
         const tipo = tipoDoErro(e);
         falhas.set(tipo, (falhas.get(tipo) || 0) + 1);
+        if (!primeiraMensagem.has(tipo)) primeiraMensagem.set(tipo, mensagemDoErro(e));
       }
       if (lote.length >= BUSCA_LOTE_MAX) {
         const envio = lote; lote = [];
@@ -570,11 +618,18 @@ export async function principal() {
     const totalDeFalhas = [...falhas.values()].reduce((a, b) => a + b, 0);
     console.log(`${album}: ${feitas} fotos processadas, ${rostos} rostos indexados, ${totalDeFalhas} falhas.`);
     if (totalDeFalhas) console.log(`${album}: falhas por tipo: ${[...falhas].sort((a, b) => b[1] - a[1]).map(([t, q]) => `${t} × ${q}`).join(', ')}.`);
+    if (totalDeFalhas) await mandaErros(site, slug, [...falhas].sort((a, b) => b[1] - a[1]).map(([tipo, vezes]) => ({ tipo, vezes, mensagem: primeiraMensagem.get(tipo) || '' })));
     if (descrever) console.log(`${album}: busca nas fotos: ${marcadas} marcadas pela moderação, ${escondidas} escondidas (da turma).`);
   }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   // Só o tipo do erro: a mensagem crua pode levar o endereço de uma página.
-  principal().catch(e => { console.error(`O indexador parou: ${tipoDoErro(e)}.`); process.exit(1); });
+  // A mensagem inteira vai só ao site (mandaErros), para o painel.
+  principal().catch(async e => {
+    console.error(`O indexador parou: ${tipoDoErro(e)}.`);
+    const site = (process.env.ROSTO_SITE || 'https://fotos.lucafchala.com').replace(/\/+$/, '');
+    await mandaErros(site, slugAtual, [{ tipo: tipoDoErro(e), mensagem: mensagemDoErro(e), vezes: 1 }]);
+    process.exit(1);
+  });
 }

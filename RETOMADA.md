@@ -864,7 +864,7 @@ HEIC/HEIF, PNG...) e a miniatura vem do `lh3` do Google. **Não verificado
 contra o Google**: se o `lh3` não servir miniatura para HEIC/RAW ou vídeo, a
 grade mostra o quadrado vazio; a rota de download entrega os bytes originais de
 qualquer forma. Arquivo com tipo `application/octet-stream` (alguns HEIC/RAW
-enviados por apps) não entra na lista. **Desde a 4.3.0** o vídeo toca no
+enviados por apps) não entra na lista. **Desde a 4.4.0** o vídeo toca no
 próprio visualizador, num `<video>` servido por
 `/galeria/<slug>[/<capítulo>]/video/<id>`, com `Range`. A rota tem as mesmas
 checagens do download e um limite por IP próprio (`GALERIA_VIDEO_BUCKET`), e

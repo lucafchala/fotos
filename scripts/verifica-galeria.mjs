@@ -281,7 +281,7 @@ async function abre(o = {}) {
     turnstile: 0,
     // Pedidos ao player do Drive (item 1f): só depois do toque no play.
     drive: /** @type {string[]} */ ([]),
-    // Pedidos à rota de vídeo do próprio site (v4.3.0), com o Range de cada um.
+    // Pedidos à rota de vídeo do próprio site (v4.4.0), com o Range de cada um.
     video: /** @type {{ id: string, range: string }[]} */ ([]),
     remocao: /** @type {any[]} */ ([]),
   };
@@ -334,7 +334,7 @@ async function abre(o = {}) {
     if (u.pathname === GALERIA_JS.path) return route.fulfill({ status: 200, contentType: 'text/javascript', body: GALERIA_JS.texto });
     const v = VENDOR.find(x => x.path === u.pathname);
     if (v) return route.fulfill({ status: 200, contentType: v.contentType, body: v.texto });
-    // O vídeo tocado no site (v4.3.0): um WebM de verdade, com Range como o
+    // O vídeo tocado no site (v4.4.0): um WebM de verdade, com Range como o
     // servidor. `videoFalha`: a rota responde 502 (o player cai no Drive).
     const vm = u.pathname.match(/^\/galeria\/formatura(?:\/cerimonia)?\/video\/([A-Za-z0-9_-]+)$/);
     if (vm) {
@@ -480,7 +480,7 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
         return { css: t.getBoundingClientRect().width, w: m ? Number(m[1]) : 0, ok: img.classList.contains('ok') };
       });
       const nan = [...document.querySelectorAll('.g-t')].some(t => !/^\d+px$/.test(/** @type {HTMLElement} */ (t).style.width));
-      // A grade é virtual (v4.3.0): só os blocos perto da tela têm miniaturas.
+      // A grade é virtual (v4.4.0): só os blocos perto da tela têm miniaturas.
       const alts = [...document.querySelectorAll('.g-t')].map(t => [Number(/** @type {HTMLElement} */ (t).dataset.i), /** @type {HTMLImageElement} */ (t.querySelector('img')).alt]);
       // Desempenho da carga: o que é "eager"/prioritário e onde está.
       const imgs = /** @type {HTMLImageElement[]} */ ([...document.querySelectorAll('.g-t img')]);
@@ -507,7 +507,7 @@ for (const [nome, viewport, dpr, toque] of /** @type {const} */ ([
   // pintura); depois da carga o aquecimento ocioso já pode tê-lo trazido.
   registra(!/<link rel="stylesheet"[^>]*photoswipe/.test(PAGINA), `${nome}: o CSS do visualizador não bloqueia a primeira pintura (fora do HTML servido)`, '');
   registra(g.carga.coracaoCss && g.carga.svgPorFoto === 0, `${nome}: coração da miniatura em CSS, sem <svg> por foto`, g.carga);
-  // v4.3.0: densidade cheia (o DPR real); o teto (MINIATURA_DPR_TETO) só
+  // v4.4.0: densidade cheia (o DPR real); o teto (MINIATURA_DPR_TETO) só
   // entra no modo leve, quando o aparelho trava (main[data-leve]).
   const dprEf = g.leve ? dpr * fatorMiniatura(dpr) : dpr;
   const exato = g.tiles.filter(t => t.ok).every(t => t.w === degrau(GALERIA_LARGURAS_GRADE, t.css * dprEf - 0.01));
@@ -558,7 +558,7 @@ await cenario('Miniatura que falha tenta de novo', async () => {
   await ctx.close();
 });
 
-// ---- 1c. Rede muito ruim (v4.3.0) --------------------------------------------
+// ---- 1c. Rede muito ruim (v4.4.0) --------------------------------------------
 // A tela aparece primeiro, com 1 pixel físico por pixel da tela; depois, com
 // a tela pronta e o dedo parado, as da tela sobem para a densidade cheia.
 /** As miniaturas da grade na tela: id, largura pedida agora e a do quadradinho. */
@@ -721,7 +721,7 @@ await cenario('Visualizador no iPhone', async () => {
   await page.touchscreen.tap(cx, cy);
   const zoom = await esperaLargura(page, ini.w + 1, 6000);
   registra(zoom.w > ini.w, 'iPhone: duplo toque amplia e pede resolução maior', { antes: ini.w, depois: zoom.w });
-  // v4.3.0: e a maior que a tela ampliada pede (pixels FÍSICOS), sem teto.
+  // v4.4.0: e a maior que a tela ampliada pede (pixels FÍSICOS), sem teto.
   await espera(page, 900);
   const ampliada = await esperaLargura(page, degrau(escada, (await larguraAtualDoVisualizador(page)).exibida * 3), 6000);
   registra(ampliada.w === degrau(escada, ampliada.exibida * 3), 'iPhone: no zoom, a resolução máxima que a tela ampliada pede', { pedida: ampliada.w, exibida: Math.round(ampliada.exibida) });
@@ -920,7 +920,7 @@ await cenario('iPhone sem compartilhar arquivos', async () => {
   await ctx.close();
 });
 
-// Compartilhar uma foto (v4.3.0): manda o LINK da foto (?foto=), nunca o
+// Compartilhar uma foto (v4.4.0): manda o LINK da foto (?foto=), nunca o
 // arquivo — nenhum pedido a /baixar/, nada conta como download. Sem o menu do
 // sistema, o link vai para a área de transferência.
 await cenario('Compartilhar manda o link, não a foto', async () => {
@@ -1124,7 +1124,7 @@ await cenario('iPad', async () => {
   await ctx.close();
 });
 
-// ---- 6. Favoritas: a única marca (v4.3.0 juntou a antiga "Seleção") ----------
+// ---- 6. Favoritas: a única marca (v4.4.0 juntou a antiga "Seleção") ----------
 // Três fotos marcadas, UMA sem versão do Instagram (a 6ª, índice 5).
 await cenario('Favoritas: baixar', async () => {
   const { ctx, page, estado } = await abre({});
@@ -1780,7 +1780,7 @@ await cenario('Índice: N novas desde a última visita', async () => {
 
 // ---- 6g. Vídeos e Live Photo (item 1f) --------------------------------------
 // O vídeo é um item da grade (selo de play com a duração); o Live Photo é uma
-// foto com selo "LIVE". No visualizador (v4.3.0) o vídeo abre no player estilo
+// foto com selo "LIVE". No visualizador (v4.4.0) o vídeo abre no player estilo
 // reels: <video> da própria origem, tocando mudo, toque pausa, botão de som,
 // barra arrastável. Nada do Google carrega. Se o <video> falhar, cai na
 // FACHADA (miniatura + play) e só o toque no play põe o iframe do Drive.

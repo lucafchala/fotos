@@ -29,7 +29,7 @@ Este documento é o mapeamento e o fundamento de cada uma dessas transferências
 
 | | |
 | --- | --- |
-| **R2 (cópias das fotos)** | Desde a v3.8.3 o bucket `FOTOS_R2` guarda miniaturas, arquivos baixados e, desde a v4.3.0, os vídeos tocados na galeria, para a galeria não depender do Google a cada visita. São as mesmas fotografias que o Google Drive hospeda: o impacto de um vazamento é o das fotos, e a mesma cláusula do DPA cobre. A localização do bucket é escolhida na criação dele, no painel da Cloudflare: **o controlador deve conferir qual é** e anotar aqui. Cópia de foto ou vídeo ocultado, removido ou apagado da pasta é apagada. |
+| **R2 (cópias das fotos)** | Desde a v3.8.3 o bucket `FOTOS_R2` guarda miniaturas, arquivos baixados dos álbuns e, desde a v4.4.0, os vídeos tocados na galeria, para a galeria não depender do Google a cada visita. São as mesmas fotografias que o Google Drive hospeda: o impacto de um vazamento é o das fotos, e a mesma cláusula do DPA cobre. O bucket (`fotos-album`, criado em 08/11/2026) fica no **leste da América do Norte** (região ENAM da Cloudflare), conferido no painel em 17/11/2026. Cópia de foto ocultada, removida ou apagada da pasta é apagada. |
 | **Sede** | Estados Unidos (Cloudflare, Inc.) |
 | **Papel** | Operador |
 | **Dados** | Todo o tráfego do site; log de consentimento (D1); pedidos de remoção, contadores e sessões (KV); sinais anti-robô (Turnstile); métrica agregada |
@@ -100,7 +100,7 @@ renderização.
 | | |
 | --- | --- |
 | **Sede** | Estados Unidos (Google LLC) |
-| **Papel** | Desde a v4.3.0 o vídeo toca pelo próprio site, a partir da cópia no R2 (seção 1). Só se essa reprodução falhar a página usa o player embutido do Drive, que reproduz o vídeo que está na pasta do projeto |
+| **Papel** | Desde a v4.4.0 o vídeo toca pelo próprio site, a partir da cópia no R2 (seção 1). Só se essa reprodução falhar a página usa o player embutido do Drive, que reproduz o vídeo que está na pasta do projeto |
 | **Dados** | Nada do player é carregado com a página: só **se a reprodução pelo site falhar e depois do toque** num vídeo da galeria o player (`drive.google.com`) é carregado e o Google passa a tratar **IP, navegador e dados de reprodução** |
 | **Fundamento (art. 33)** | **II, “a” e “b”** — Termos de Serviço e política de privacidade do Google |
 | **Minimização aplicada** | O player é só a alternativa de quando o site falha; nada antes do toque; a CSP libera esse host só nas páginas de galeria com vídeo |

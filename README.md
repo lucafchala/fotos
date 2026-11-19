@@ -48,7 +48,7 @@ e sem etapa de build.
 - **Salvar por aparelho.** Android e computador baixam o arquivo direto. No
   iPhone e no iPad, "Salvar no Fotos" abre a folha do sistema com o arquivo
   exato, e "Baixar arquivo" salva no app Arquivos.
-- **Favoritas.** O coração é a única marca (desde a 4.3.0 a antiga "Seleção",
+- **Favoritas.** O coração é a única marca (desde a 4.4.0 a antiga "Seleção",
   o ✓, faz parte das favoritas). Com o filtro "Favoritas" ligado, o topo
   oferece "Baixar" e "Compartilhar"; este manda um link `#sel=…` com até 300
   fotos. As favoritas ficam só no aparelho, e o link compartilhado não é
@@ -56,11 +56,11 @@ e sem etapa de build.
 - **Compartilhar uma foto.** No visualizador, "Compartilhar" manda o link da
   foto (`?foto=`), com a prévia no WhatsApp. Não manda o arquivo nem gasta o
   limite de downloads.
-- **Vídeo tocado no site (4.3.0).** O vídeo toca no próprio visualizador,
+- **Vídeo tocado no site (4.4.0).** O vídeo toca no próprio visualizador,
   como nos reels: começa mudo, o toque pausa e há barra de progresso. Vem pela
   rota `/galeria/<slug>/video/<id>`, com `Range` e limite próprio por IP. Se
   ela falhar, a página usa o player do Drive.
-- **Leve no celular e nítida na tela (4.3.0).** A grade é virtual: só os
+- **Leve no celular e nítida na tela (4.4.0).** A grade é virtual: só os
   blocos perto da tela têm miniaturas, e com 3.000 fotos ela abre e rola sem
   travar. As miniaturas vêm na densidade cheia da tela. O "modo leve" (teto de
   2×) só liga se o aparelho travar. Na rolagem rápida, as fotos da tela vêm

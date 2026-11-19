@@ -814,7 +814,7 @@ describe('galeriaHTML — cabeçalho de galeria', () => {
     expect(cab?.[0]).not.toContain('← Painel');
   });
 
-  it('a ação do convidado é "Baixar tudo"; não há mais "Selecionar" (v4.3.0: juntou-se às favoritas)', () => {
+  it('a ação do convidado é "Baixar tudo"; não há mais "Selecionar" (v4.4.0: juntou-se às favoritas)', () => {
     const html = render(fotos37);
     expect(html).not.toContain('id="g-sel"');
     expect(html).not.toContain('id="g-barra"');
@@ -1310,7 +1310,7 @@ describe('desempenho da carga da galeria', () => {
     expect([...MINIATURA_DPR_DEGRAUS].sort((a, b) => b - a)).toEqual(MINIATURA_DPR_DEGRAUS);
   });
 
-  it('pré-carga do LCP na densidade cheia (a da grade ao abrir); a escada do modo leve vai nos dados (4.3.0)', async () => {
+  it('pré-carga do LCP na densidade cheia (a da grade ao abrir); a escada do modo leve vai nos dados (4.4.0)', async () => {
     const { fatorMiniatura, MINIATURA_DPR_DEGRAUS } = await import('../src/config.js');
     const html = galeriaHTML({ event: EVENTOS[0], listagem: { v: 1, pasta: RAIZ, em: '2026-10-10T00:00:00Z', truncada: false, total: 1, videos: 0, outros: 0, rk: {}, secoes: [{ nome: '', caminho: '', fotos: [['FOTO_DEZ_00010', 3000, 2000, 'a.jpg', 1]] }] }, erro: null, nonce: 'n', dono: false });
     const sizes = (html.match(/imagesizes="([^"]+)"/) || [])[1];

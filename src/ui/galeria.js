@@ -338,7 +338,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
   // (a da tela menos o --pad), então o navegador escolhe no srcset o MESMO
   // degrau que a <img> vai pedir. Só WebP (type): quem não decodifica ignora a
   // dica e segue o caminho de sempre. Foto em pé divide a linha: sem dica.
-  // v4.3.0: a grade abre na densidade CHEIA da tela (o teto de 2× só entra
+  // v4.4.0: a grade abre na densidade CHEIA da tela (o teto de 2× só entra
   // se o aparelho travar, depois da primeira tela): a pré-carga pede a largura
   // da linha × o DPR real, o mesmo arquivo que a <img> do script pede.
   const sizesPreload = 'calc(100vw - 2 * max(12px, 3vw))';
@@ -569,7 +569,7 @@ export function galeriaHTML({ event, listagem, erro, nonce, dono = true, ocultas
     .g-sec h2{font-size:.9375rem;letter-spacing:0;color:var(--text-2);font-weight:600}
     .g-grade{padding:0 var(--pad)}
     .g-linha{display:flex;gap:var(--gap);margin-bottom:var(--gap)}
-    /* v4.3.0: a grade é feita de blocos de altura fixa; só os perto da tela
+    /* v4.4.0: a grade é feita de blocos de altura fixa; só os perto da tela
        têm miniaturas dentro (ver enche/esvazia). */
     .g-bloco{contain:layout style}
     .g-t:focus-visible{outline-offset:-3px}
@@ -936,7 +936,7 @@ function fotosDaLinha(rs, W) {
  * Sai só quando a linha é a MESMA em qualquer celular (de 320 a 430 px) e não
  * é a última da seção (a última não estica — a conta seria outra), e só com
  * fotos (vídeo tem miniatura lenta e prioridade baixa). O `sizes` é o tamanho
- * que o script vai calcular (densidade cheia desde a v4.3.0), para os dois
+ * que o script vai calcular (densidade cheia desde a v4.4.0), para os dois
  * pedirem o mesmo arquivo. Nada disso vale fora do celular: o
  * CSS esconde (.g-pre).
  * @param {import('../drive.js').ListagemDrive} listagem
@@ -957,7 +957,7 @@ export function primeiraFileiraHTML(listagem, assina) {
   const jpeg = (/** @type {string} */ u) => u.replace(/^(\/f\/[^/?]+\/\d+)/, '$1j');
   const itens = linha.map((f, k) => {
     const parte = Math.round(rs[k] / soma * 1e4) / 1e4;
-    // v4.3.0: densidade cheia, como a grade ao abrir (o modo leve vem depois).
+    // v4.4.0: densidade cheia, como a grade ao abrir (o modo leve vem depois).
     const sizes = `calc((${util}) * ${parte})`;
     const webp = GALERIA_LARGURAS_GRADE.map(x => `${urlFoto(f[0], x, assina)} ${x}w`).join(', ');
     const jpg = GALERIA_LARGURAS_GRADE.map(x => `${jpeg(urlFoto(f[0], x, assina))} ${x}w`).join(', ');
@@ -1314,11 +1314,11 @@ const SCRIPT = `
     });
   }
 
-  // v4.3.0: o quadradinho (o <a> com a <img>) só nasce quando a foto chega
+  // v4.4.0: o quadradinho (o <a> com a <img>) só nasce quando a foto chega
   // perto da tela (ver enche) ou quando alguém pede f.el / f.img (visualizador,
   // folha de download). Criar os mil e tantos de uma vez na abertura custava
   // ~0,25 s no celular, e cada um ainda pesava no estilo e na pintura.
-  // v4.3.0: um construtor (e não Object.create + Object.assign com um objeto
+  // v4.4.0: um construtor (e não Object.create + Object.assign com um objeto
   // de passagem por foto) e o alt calculado só quando alguém pede: com 3.000
   // fotos, eram ~40 ms da abertura no celular.
   /** @this {any} */
@@ -1418,7 +1418,7 @@ const SCRIPT = `
     grades.forEach(function (g) { diagrama(g, W, alvo, gap, pos); });
   }
 
-  // v4.3.0: a grade vira blocos de linhas com altura fixa. Só os blocos perto
+  // v4.4.0: a grade vira blocos de linhas com altura fixa. Só os blocos perto
   // da tela têm as miniaturas dentro (enche); os outros são caixas vazias da
   // mesma altura, então a rolagem e a barra lateral não mudam. Um vigia só,
   // olhando dezenas de blocos (não milhares de fotos), enche e esvazia.
@@ -1488,7 +1488,7 @@ const SCRIPT = `
     if (el) enche(el);
   }
 
-  // v4.3.0: rolagem rápida, a tela primeiro. Fora da primeira tela da página,
+  // v4.4.0: rolagem rápida, a tela primeiro. Fora da primeira tela da página,
   // a miniatura não pede o arquivo sozinha: um segundo vigia (margem zero)
   // sabe quais blocos estão NA tela, e só eles pedem já, com prioridade alta.
   // Os da margem do vigia grande pedem quando a tela inteira saiu do
@@ -1585,7 +1585,7 @@ const SCRIPT = `
     }
   }
 
-  // v4.3.0: a abertura só cria os blocos das primeiras telas. O resto fica
+  // v4.4.0: a abertura só cria os blocos das primeiras telas. O resto fica
   // num calço com a mesma altura (e o mesmo data-n), trocado pelos blocos de
   // verdade no tempo ocioso: com 3.000 fotos, criar e vigiar os ~750 blocos de
   // uma vez era a maior parte da tarefa longa de abrir no celular.
@@ -1737,7 +1737,7 @@ const SCRIPT = `
   // "sizes" encolhe pelo fator do degrau do DPR, e o navegador escolhe a
   // miniatura como se a tela fosse no máximo 2×. A escada vem do servidor
   // (D.dpr) para ser a MESMA da pré-carga do LCP.
-  // v4.3.0: qualidade máxima que a tela permite, sempre; o teto só volta se
+  // v4.4.0: qualidade máxima que a tela permite, sempre; o teto só volta se
   // o aparelho travar (ficaLeve): tarefas longas seguidas ou miniaturas da
   // tela demorando. Vale para as próximas miniaturas; as já baixadas ficam.
   const fatorLeve = (function () {
@@ -1753,7 +1753,7 @@ const SCRIPT = `
     main.dataset.leve = motivo;
     if (!redeRuim) fatorDpr = fatorLeve;
   }
-  // v4.3.0: rede MUITO ruim (2G, ou 3 das últimas 6 miniaturas da tela
+  // v4.4.0: rede MUITO ruim (2G, ou 3 das últimas 6 miniaturas da tela
   // levando mais de 6 s). A tela aparece primeiro: as próximas miniaturas
   // pedem 1 pixel físico por pixel da tela (fatorMinimo), e só depois, com a
   // tela inteira pronta e o dedo parado, as da tela sobem para a densidade de
@@ -1876,7 +1876,7 @@ const SCRIPT = `
       // v3.9.4: só a primeira tela ganha o srcset já. O resto ganha quando
       // chega perto (ver poeSrc): montar as ~13 URLs de cada uma das mil e
       // tantas miniaturas na abertura travava o celular por meio segundo.
-      // v4.3.0: o bloco só enche perto da tela, então o srcset entra já
+      // v4.4.0: o bloco só enche perto da tela, então o srcset entra já
       // no topo da página; no resto, quem decide a ordem é a fila (anda).
       if (perto) f._t = performance.now();
       if (perto || !vigiaTela) poeSrc(f);
@@ -1931,7 +1931,7 @@ const SCRIPT = `
   // ---- Favoritas ----
   // Ficam só neste aparelho (localStorage), e a página tem de funcionar com o
   // armazenamento bloqueado. Até a 4.1 havia também a "seleção" (✓), uma
-  // segunda marca que confundia; na 4.3.0 ela se juntou às favoritas: o
+  // segunda marca que confundia; na 4.4.0 ela se juntou às favoritas: o
   // coração é a única marca, e as favoritas se baixam e se compartilham.
   const CHAVE_SEL_ANTIGA = 'galeria:sel:' + D.slug;
   const CHAVE_FAV = 'galeria:fav:' + D.slug;
@@ -2322,7 +2322,7 @@ const SCRIPT = `
   /** @type {Promise<any> | null} */
   let carregandoLb = null;
 
-  // ---- Vídeo no visualizador: player estilo reels (v4.3.0) ----
+  // ---- Vídeo no visualizador: player estilo reels (v4.4.0) ----
   // Um <video> comum servido pela própria origem (/galeria/.../video/<id>,
   // com Range): ocupa o slide, começa a tocar MUDO quando o slide fica ativo,
   // toque pausa/continua (ícone grande que some), botão de som redondo (a
@@ -2570,7 +2570,7 @@ const SCRIPT = `
     larguras.push(maior);
     /** @param {number[]} ls */
     const conjunto = function (ls) { return ls.map(function (x) { return lh3(f.id, x) + ' ' + x + 'w'; }).join(', '); };
-    // Rede muito ruim (v4.3.0): a foto abre com 1 pixel físico por pixel da
+    // Rede muito ruim (v4.4.0): a foto abre com 1 pixel físico por pixel da
     // tela e sobe para a resolução cheia quando assenta (sobeNoVisualizador).
     if (redeRuim) {
       const teto = larguras.find(function (x) { return x >= window.innerWidth; }) || maior;
@@ -3397,7 +3397,7 @@ const SCRIPT = `
     mostraFolha(primeiro || /** @type {HTMLElement} */ (folha.querySelector('[data-acao="fechar-folha"]')));
   }
 
-  // Compartilhar a foto aberta (botão Compartilhar do visualizador, v4.3.0):
+  // Compartilhar a foto aberta (botão Compartilhar do visualizador, v4.4.0):
   // manda o LINK da foto (?foto=código), nunca o arquivo. O link abre direto
   // nela, com a prévia (imagem e título) no WhatsApp; o arquivo continua em
   // Baixar. Sem o menu do sistema, copia o link. Nada é baixado do servidor:
@@ -3870,7 +3870,7 @@ const SCRIPT = `
     }
     // Aquece o visualizador no tempo ocioso: o primeiro toque abre na hora.
     const ocioso = window.requestIdleCallback || function (fn) { return setTimeout(fn, 1200); };
-    // v4.3.0: e o núcleo (pswpModule) também, que antes só vinha no toque.
+    // v4.4.0: e o núcleo (pswpModule) também, que antes só vinha no toque.
     ocioso(function () { preparaLightbox().then(function () { return import(D.core); }).catch(function () {}); });
   });
 })();
