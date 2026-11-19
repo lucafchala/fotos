@@ -18,7 +18,24 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.1.6] — ainda não publicada
+## [4.2.0] — ainda não publicada
+
+O erro do indexador da busca pelo rosto, por inteiro, no painel (#299).
+
+- **A mensagem inteira, em particular.** O log do Actions é público e por isso
+  só diz o *tipo* do erro ("AWS InvalidImageFormatException", "TypeError").
+  Foi assim que a falha de 17/11/2026 ficou sem causa. Agora o indexador manda
+  ao site, com o token dele (`POST /api/busca/erro`), a primeira mensagem
+  inteira de cada tipo, quantas vezes ele aconteceu e, no erro que para a
+  execução, a mensagem com a causa (o "fetch failed" do Node esconde o
+  `ECONNRESET` dentro de `cause`). O log público continua só com contagens.
+- **Onde ver.** No painel, no projeto, "Quem saiu da busca e erros do
+  indexador": os erros dos últimos 30 dias (os 30 mais recentes). O
+  `/api/healthz`, que é público, não os mostra.
+- Sem o token, `/api/busca/erro` responde o 404 de rota inexistente, como
+  `/api/busca/estado`. `tests/rosto-indexador.test.js` cobre os dois lados.
+
+## [4.1.6] — 2026-11-18
 
 Acessibilidade na página de suporte (`/suporte`).
 
