@@ -23,8 +23,9 @@ describe('primeiraFileiraHTML', () => {
     expect(html).toContain('/f/FOTO_A_00000001/800?k=ev.FOTO 800w');
     expect(html).toContain('fetchpriority="high"');
     expect(html).toContain('style="--r:1.5"');
-    // Teto de densidade: no 3× o sizes encolhe pelo mesmo fator do script.
-    expect(html).toContain('(min-resolution: 3dppx) calc((100vw - 2 * max(12px, 3vw) - 0px) * 0.6667)');
+    // v4.4.0: densidade cheia (a mesma da grade ao abrir), sem fator por min-resolution.
+    expect(html).toContain('sizes="calc((100vw - 2 * max(12px, 3vw) - 0px) * 1)"');
+    expect(html).not.toContain('min-resolution');
     expect(html).not.toContain('FOTO_B');
   });
 

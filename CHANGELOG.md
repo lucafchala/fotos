@@ -18,7 +18,142 @@ número sobe uma vez por PR, com a seção dele aqui no topo, marcada "ainda nã
 publicada" até o merge — merge é deploy. `tests/versao.test.js` reprova se
 `package.json`, `VERSAO` e a primeira seção deste arquivo divergirem.
 
-## [4.3.0] — ainda não publicada
+## [4.5.0] — ainda não publicada
+
+Menor: a página inicial carrega mais eventos sozinha ao chegar ao fim.
+
+- **Sem clicar em "Carregar mais".** Quando o fim da lista chega a 600 px da
+  tela, os próximos 12 eventos aparecem. O botão continua lá para quem navega
+  pelo teclado e para navegador sem `IntersectionObserver`. Com busca ou
+  filtro ativos, nada muda: a lista já mostra tudo o que combina.
+- `scripts/verifica-celular.mjs` ganhou o cenário "Início": num iPhone de
+  390 px, com 40 eventos, rolar até o fim mostra os 40; com tudo à mostra o
+  botão some; a busca segue filtrando; sem erro de JS.
+
+## [4.4.0] — 2026-11-19
+
+Menor: função nova (vídeo tocado no site) e uma marca a menos na galeria. Vem
+depois do #323 (4.3.0, visual).
+
+- **Só o coração: a "Seleção" (✓) se juntou às favoritas.** Eram duas marcas
+  na mesma miniatura para a mesma ideia ("as fotos de que gostei"), e quem
+  chegava não sabia qual tocar. Saíram o botão *Selecionar*, a barra de
+  seleção, o ✓ de cada miniatura, o *Selecionar todas* por seção, o
+  Shift+clique e o botão de seleção do visualizador. Com o filtro
+  *Favoritas* ligado, o topo oferece **Baixar** (a mesma folha que a seleção
+  usava) e **Compartilhar** (o link `#sel=` de antes). Quem tinha fotos na
+  seleção antiga as encontra nas favoritas: a chave `galeria:sel:<slug>` do
+  aparelho é juntada a `galeria:fav:<slug>` uma vez e apagada. A ajuda e as
+  dicas da página do evento passaram a falar do coração. Cada miniatura tem
+  um elemento a menos.
+- **Vídeo tocado no próprio site, estilo reels.** No visualizador, o vídeo
+  abre num `<video>` (começa mudo, toque pausa, som lembrado na visita,
+  barra de progresso, espaço pausa) servido por
+  `/galeria/<slug>[/<capítulo>]/video/<id>`, com `Range` (206/416) para pular
+  e para o iPhone. Mesmas checagens do download, limite por IP num balde
+  próprio (`GALERIA_VIDEO_BUCKET`), não conta como download, e o primeiro
+  play copia o vídeo para o R2. Se algo falhar, cai no player do Drive de
+  antes. A CSP ganha `media-src 'self'` só nas páginas com vídeo.
+- **Compartilhar, no visualizador, manda o link da foto** (`?foto=`), não o
+  arquivo: abre direto nela, com a prévia no WhatsApp, e não gasta o limite
+  de downloads. O arquivo continua em *Baixar*.
+- **Grade virtual: a galeria grande abre e rola sem travar o celular.** As
+  linhas viram blocos de altura fixa (~800 px); só os blocos perto da tela
+  têm miniaturas dentro, e um vigia só (dezenas de blocos, não milhares de
+  fotos) enche e esvazia. A miniatura (o `<a>` com a `<img>`) só é criada
+  quando chega perto ou quando o visualizador/download pede. Bloco com o
+  foco do teclado ou com a foto do visualizador não esvazia. Celular lento
+  (CPU 4×), 1.300 fotos: de ~6.300 para ~390 elementos na página, maior
+  trava ao abrir de 0,55–1,05 s para 0,23 s, travas ao rolar de 1,4 s para
+  0,05 s. Com 3.000 fotos: 14 mil → ~710 elementos, 0,9–1,9 s → 0,37 s ao
+  abrir, 2,3 s → 0,2 s ao rolar.
+- **Grade virtual, segunda volta: a abertura ficou mais curta.** A abertura
+  agora só cria os blocos das primeiras telas (até duas telas abaixo, mais a
+  margem de 1.000 px do vigia). O resto fica num calço com a mesma altura e o
+  mesmo `data-n`, trocado pelos blocos de verdade em fatias no tempo ocioso
+  (`requestIdleCallback`; no Safari, que não tem, um `setTimeout` com fatia de
+  ~12 ms). Se o visualizador, o foco ou um link pedirem uma foto ainda no
+  calço, o bloco nasce na hora. Cada foto virou um objeto de um construtor
+  (antes `Object.create` + `Object.assign` com um objeto de passagem), e o
+  `alt` (`<evento> — foto i de n`) é calculado só quando alguém pede:
+  `monta()` caiu de ~41 ms para ~14 ms com 3.000 fotos (CPU 4×). O núcleo do
+  PhotoSwipe também é importado no tempo ocioso (antes só o lightbox); do
+  toque ao visualizador aberto: ~125 → ~105 ms.
+  Números (celular simulado, CPU 4×, maior trava ao abrir, duas rodadas na
+  mesma máquina, antes → depois): 300 fotos 78/94 → 87/74 ms (igual, dentro
+  do ruído); 1.300 fotos 142/178 → 107/115 ms; 3.000 fotos 205/176 →
+  130/128 ms. LCP com 3.000 fotos: ~580 → ~470 ms. Elementos na página e
+  travas ao rolar não mudaram.
+  Testado e descartado nesta volta: pré-encher na direção da rolagem. Medido
+  rolando a 4.000 e 10.000 px/s: a versão anterior e a nova mostram bloco
+  vazio em 0 e em 1 a 4 de ~57 quadros, iguais; os quadros perdidos vêm da
+  pintura, não do vigia.
+  Medido e deixado para depois: o HTML com 3.000 fotos tem 282 KB (111 KB em
+  brotli), 232 KB deles são os dados embutidos; o `JSON.parse` custa ~7 ms.
+  Compactar o formato mexe no servidor e no cache por pouco ganho no celular.
+- **Qualidade máxima que a tela permite, sempre** (pedido do dono). As miniaturas da grade
+  passaram a abrir na densidade cheia da tela (o DPR real). Antes havia um
+  teto de 2× (`MINIATURA_DPR_TETO`, 14/11/2026) para o LCP no 4G lento. O
+  teto virou o "modo leve" e só liga se o aparelho travar: três tarefas
+  longas (150 ms ou mais) em 10 s depois da abertura (só no Chrome/Android,
+  o Safari não tem "longtask"), ou 4 das últimas 6 miniaturas pedidas para
+  a tela levando mais de 2,5 s. Vale para as próximas miniaturas; as já
+  baixadas ficam. A página marca `data-leve` no `#g-main` ("cpu" ou "rede").
+  A pré-carga do LCP e a primeira fileira do servidor pedem também a
+  densidade cheia (sem os degraus de `min-resolution`): continua um pedido
+  só para a primeira foto.
+  No visualizador nada mudou: já não tinha teto, e o zoom (duplo toque,
+  pinça e botão) sobe o degrau até o original. O teste agora confere que,
+  ampliada, a foto pede a resolução máxima que a tela ampliada pede.
+  Exemplo medido num celular 412 px @2,625: o quadradinho de 387 px pede o
+  arquivo de 1.200 px; com a rede travando (3 s por foto), o modo leve liga
+  e as próximas pedem 800.
+- **Rolagem rápida até o fim: a tela sai do esqueleto primeiro.** Antes, o
+  navegador continuava baixando as miniaturas pelas quais o dedo já tinha
+  passado, na frente das que estavam na tela. Agora, fora da primeira tela
+  da página, só os blocos que estão NA tela pedem as miniaturas (com
+  prioridade alta); os da margem do vigia pedem quando a tela inteira saiu
+  do esqueleto. No arremesso (acima de 6.000 px/s) nem a tela pede, porque
+  ela some no próximo quadro. Bloco que esvazia cancela a miniatura que
+  ainda não chegou. Ela vai, com as que o dedo passou sem pedir, para as
+  "passadas", baixadas em segundo plano (4 por vez, a mais perto primeiro)
+  com o dedo parado e a tela pronta. Só as 150 mais recentes, o mesmo que o
+  navegador já baixava sozinho antes, para um arremesso até o fim de 3.000
+  fotos não virar centenas de MB.
+  Números (3.000 fotos, CPU 4×, rede lenta simulada com 6 respostas ao mesmo
+  tempo de 250 ms cada; tempo do dedo parar até todas as fotos da tela
+  saírem do esqueleto, antes → depois): rolando a 10.000 px/s até 25.000
+  px, 3,96 s → 0,83 s; a 6.000 px/s até 15.000 px, 1,43 s → 0,88 s; a
+  3.000 px/s até 8.000 px, 76 → 98 ms (igual). As 154 que passaram são
+  baixadas depois, como antes.
+  A abertura não mudou (maior trava com 3.000 fotos: mínimo 126 ms nas duas
+  versões).
+- **Rede muito ruim: a tela primeiro, numa versão baixa, que sobe depois**
+  (pedido do dono). A página entra no modo quando o Chrome anuncia 2G
+  (`navigator.connection.effectiveType`) ou quando 3 das últimas 6 miniaturas
+  da tela levaram mais de 6 s (`#g-main[data-rede]`: "conexao" ou "medida").
+  No modo, as próximas miniaturas pedem 1 pixel físico por pixel da tela (no
+  iPhone 390@3, 200 a 300 px em vez de 500 a 700). Quando a tela inteira
+  está pronta e o dedo para, as da tela sobem para a densidade de antes (a
+  cheia, ou a do modo leve), 2 por vez e antes das passadas. Enquanto a maior
+  chega, a baixa fica à vista: o navegador só troca quando ela termina. Se
+  aparecer um buraco na tela, as subidas em voo são canceladas e voltam para
+  a baixa, que está em cache. Subida que demora mais de 8 s ou falha pausa
+  as subidas por 30 s. Três subidas seguidas em menos de 1,5 s tiram a página
+  do modo, se ele veio da medida. As passadas baixam 2 por vez, e não 4.
+  No visualizador, a foto abre com 1 pixel por pixel da tela (480 px no
+  celular) e sobe para a resolução cheia depois de 700 ms parada nela, ou na
+  hora, se a pessoa ampliar. As vizinhas seguem baixas, e a pré-carga é só da
+  seguinte.
+- `verifica:galeria`: dois cenários novos, "Rede muito ruim: 2G" e "Rede muito
+  ruim: medida" (11 checagens: baixa primeiro, subida, visualizador, vizinhas,
+  saída do modo). O roteiro também passou a esperar a folha de download
+  terminar de entrar antes do axe: medido no meio da transição, o contraste
+  saía misturado com o fundo (4,36 no CI) e o check falhava às vezes.
+  `SO_CENARIO=<trecho>` roda só os cenários com o trecho no nome.
+- O "zerar" da prévia passou a zerar também o limite do vídeo.
+
+## [4.3.0] — 2026-11-19
 
 Menor: o fotos.lucafchala.com e o álbum Entre Nós com o visual revisado. Só
 aparência: rotas, ids, downloads, busca pelo rosto, envio e dados ficam iguais.

@@ -29,7 +29,7 @@ Este documento é o mapeamento e o fundamento de cada uma dessas transferências
 
 | | |
 | --- | --- |
-| **R2 (cópias das fotos)** | Desde a v3.8.3 o bucket `FOTOS_R2` guarda miniaturas e arquivos baixados dos álbuns, para a galeria não depender do Google a cada visita. São as mesmas fotografias que o Google Drive hospeda: o impacto de um vazamento é o das fotos, e a mesma cláusula do DPA cobre. O bucket (`fotos-album`, criado em 08/11/2026) fica no **leste da América do Norte** (região ENAM da Cloudflare), conferido no painel em 17/11/2026. Cópia de foto ocultada, removida ou apagada da pasta é apagada. |
+| **R2 (cópias das fotos)** | Desde a v3.8.3 o bucket `FOTOS_R2` guarda miniaturas, arquivos baixados dos álbuns e, desde a v4.4.0, os vídeos tocados na galeria, para a galeria não depender do Google a cada visita. São as mesmas fotografias que o Google Drive hospeda: o impacto de um vazamento é o das fotos, e a mesma cláusula do DPA cobre. O bucket (`fotos-album`, criado em 08/11/2026) fica no **leste da América do Norte** (região ENAM da Cloudflare), conferido no painel em 17/11/2026. Cópia de foto ocultada, removida ou apagada da pasta é apagada. |
 | **Sede** | Estados Unidos (Cloudflare, Inc.) |
 | **Papel** | Operador |
 | **Dados** | Todo o tráfego do site; log de consentimento (D1); pedidos de remoção, contadores e sessões (KV); sinais anti-robô (Turnstile); métrica agregada |
@@ -95,15 +95,15 @@ renderização.
 | **Fundamento (art. 33)** | **II, “a” e “b”** — Termos de Serviço e política de privacidade do Google |
 | **Minimização aplicada** | Nada do player antes do clique; domínio *nocookie*; a CSP e a Permissions-Policy liberam só esses dois hosts. Projeto sem vídeo não fala com o YouTube |
 
-### 5.1. Google — player do Google Drive (vídeo da galeria própria)
+### 5.1. Google — player do Google Drive (vídeo da galeria própria, só se a reprodução pelo site falhar)
 
 | | |
 | --- | --- |
 | **Sede** | Estados Unidos (Google LLC) |
-| **Papel** | Reproduz, no player embutido do Drive, o vídeo que está na pasta do projeto |
-| **Dados** | Nada do player é carregado com a página: só **depois do toque** num vídeo da galeria o player (`drive.google.com`) é carregado e o Google passa a tratar **IP, navegador e dados de reprodução** |
+| **Papel** | Desde a v4.4.0 o vídeo toca pelo próprio site, a partir da cópia no R2 (seção 1). Só se essa reprodução falhar a página usa o player embutido do Drive, que reproduz o vídeo que está na pasta do projeto |
+| **Dados** | Nada do player é carregado com a página: só **se a reprodução pelo site falhar e depois do toque** num vídeo da galeria o player (`drive.google.com`) é carregado e o Google passa a tratar **IP, navegador e dados de reprodução** |
 | **Fundamento (art. 33)** | **II, “a” e “b”** — Termos de Serviço e política de privacidade do Google |
-| **Minimização aplicada** | Nada antes do toque; a CSP libera esse host só nas páginas de galeria com vídeo |
+| **Minimização aplicada** | O player é só a alternativa de quando o site falha; nada antes do toque; a CSP libera esse host só nas páginas de galeria com vídeo |
 
 ### 6. GitHub — código-fonte
 
@@ -122,7 +122,7 @@ Actions Secrets, nunca no repositório — verificado por um gate de CI
 | Google Drive | **As fotografias** | **Alto** | Art. 33, II, “a” e “b” ⚠️ (confirmar DPA) | Não a curto prazo (ver TODO: R2) |
 | Resend | E-mail, telefone, foto anexa | Alto | Art. 33, II, “a” e “b” | Não — é o canal de e-mail |
 | YouTube | IP/navegador de quem abre um projeto com vídeo; dados de reprodução após o play | Baixo | Art. 33, II, “a” e “b” | Sim — basta não colocar vídeo no projeto |
-| Google (player do Drive) | IP/navegador e dados de reprodução, só depois do toque num vídeo da galeria | Baixo | Art. 33, II, “a” e “b” | Sim — basta a pasta não ter vídeo |
+| Google (player do Drive) | IP/navegador e dados de reprodução, só se a reprodução pelo site falhar e depois do toque num vídeo da galeria | Baixo | Art. 33, II, “a” e “b” | Sim — basta a pasta não ter vídeo |
 | Google Fonts | Nada (era o IP do visitante) | — | — | **Eliminado em 23/09/2026** — fontes servidas pela própria origem |
 
 ## Transparência ao titular

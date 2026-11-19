@@ -617,7 +617,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
             Ver e baixar as fotos
           </a>
-          <p class="drive-dl-tip" style="text-align:left">Toque numa foto para ver em tela cheia. Para baixar, use <strong>Selecionar</strong> (ou <strong>Baixar tudo</strong>) e escolha <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
+          <p class="drive-dl-tip" style="text-align:left">Toque numa foto para ver em tela cheia. Para baixar várias, marque com o <strong>coração</strong> e use <strong>Favoritas → Baixar</strong> (ou <strong>Baixar tudo</strong>) e escolha <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
           <button type="button" class="btn-drive-alt" data-action="openModal">Prefere o Google Drive? Abrir no Drive</button>`
           : `<button class="btn-drive" data-action="openModal">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18" stroke-width="1.2"/></svg>
@@ -773,7 +773,7 @@ export function eventHTML(event, year, analyticsToken, nonce = '', driveNonce = 
               Ir para o Google Drive
             </a>`}
         </div>
-        <p id="galeria-tip" class="drive-dl-tip"${galeriaPublica ? '' : ' style="display:none"'}><strong>Novo:</strong> toque em <strong>"Ver as fotos e baixar aqui no site"</strong>. Lá você vê todas as fotos, usa <strong>Selecionar</strong> para escolher várias (ou <strong>Baixar tudo</strong>) e baixa <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou em <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
+        <p id="galeria-tip" class="drive-dl-tip"${galeriaPublica ? '' : ' style="display:none"'}><strong>Novo:</strong> toque em <strong>"Ver as fotos e baixar aqui no site"</strong>. Lá você vê todas as fotos, marca as que quiser com o <strong>coração</strong> e baixa pelas <strong>Favoritas</strong> (ou <strong>Baixar tudo</strong>) e baixa <strong>Para redes sociais</strong> (a versão pronta para Instagram e WhatsApp, nas fotos que têm) ou em <strong>Tamanho máximo</strong> (o original). Os arquivos chegam sem alteração, com o mesmo nome. No iPhone, use <strong>Salvar no Fotos</strong>.</p>
         <p class="drive-dl-tip">No Drive, selecione todas as fotos (ícone ⋮ ou Ctrl/Cmd+A) e use <strong>"Fazer download"</strong> para baixar tudo de uma vez em um .zip.</p>
         <p class="drive-consent-note">Ao acessar, registramos data, hora e dados técnicos do acesso para comprovação, conforme a <a href="/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
       </div>
