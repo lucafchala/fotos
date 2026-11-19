@@ -1340,7 +1340,7 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
               </label>
             </div>
             <div class="field-hint" id="dica-busca-rosto" style="margin-top:.5rem">O álbum ganha o botão <em>Achar minhas fotos pelo rosto</em>: o visitante tira uma selfie e vê as fotos em que provavelmente aparece, e pode pedir para sair da busca. Só em <strong>álbum público</strong> e com as chaves da AWS no Worker; o índice de rostos é montado pelo indexador (GitHub Actions). Passo a passo e custos em <code>docs/ROSTO.md</code>. <strong>Desligar</strong> para o indexador na hora e apaga o índice (os rostos de todo mundo e a lista de quem saiu) depois de 72 horas; religar antes disso cancela.</div>
-            <div class="field-hint" style="margin-top:.5rem"><button type="button" class="btn-sm" id="f-saidas-btn" data-onclick="carregaSaidas">Quem saiu da busca</button></div>
+            <div class="field-hint" style="margin-top:.5rem"><button type="button" class="btn-sm" id="f-saidas-btn" data-onclick="carregaSaidas">Quem saiu da busca e erros do indexador</button></div>
             <div class="field-hint" id="f-saidas" role="status" aria-live="polite" style="margin-top:.5rem" hidden></div>
           </div>
           <div class="field">
@@ -1913,6 +1913,23 @@ export function dashboardHTML(events, categories = [], nonce = '', agenda = '', 
           const fim = document.createElement('div');
           fim.textContent = 'Busca desligada: o índice de rostos deste álbum será apagado em ' + quandoBR(r.apagaEm) + '. Religar a busca e salvar cancela.';
           caixa.appendChild(fim);
+        }
+        // Erros do indexador com a mensagem inteira (R1): o log do Actions é
+        // público e só diz o tipo. textContent, nunca HTML: a mensagem vem da AWS.
+        const erros = Array.isArray(r.errosIndexador) ? r.errosIndexador : [];
+        if (erros.length) {
+          const tit = document.createElement('div');
+          tit.textContent = 'Últimos erros do indexador (30 dias):';
+          const ule = document.createElement('ul');
+          ule.style.cssText = 'padding-left:1.1rem;margin:0 0 .5rem';
+          erros.forEach(function(er) {
+            const li = document.createElement('li');
+            li.style.cssText = 'overflow-wrap:anywhere';
+            li.textContent = quandoBR(er.quando) + ' — ' + er.tipo + (er.vezes > 1 ? ' (' + er.vezes + ' vezes)' : '') + (er.slug ? '' : ' [parou a execução]') + (er.mensagem ? ': ' + er.mensagem : '');
+            ule.appendChild(li);
+          });
+          caixa.appendChild(tit);
+          caixa.appendChild(ule);
         }
         if (!r.saidas.length) {
           const nada = document.createElement('div');

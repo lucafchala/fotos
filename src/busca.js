@@ -248,3 +248,64 @@ export async function apagaEstadoDoIndexador(env, slug) {
   if (!slug) return;
   try { await env.FOTOS.delete(chaveDoEstado(slug)); } catch (e) { console.error('busca: não apagou o estado do indexador', e); }
 }
+
+// ---------------------------------------------------------------------------
+// Erros do indexador, por inteiro e em particular (R1, #299)
+// ---------------------------------------------------------------------------
+// O log do Actions é público e só leva o TIPO do erro (scripts/rosto-indexa.mjs,
+// tipoDoErro). Sem a mensagem, a falha de 17/11/2026 ficou sem causa. A
+// mensagem inteira vem para cá (POST /api/busca/erro, só com o token do
+// indexador) e só o dono a lê, no painel (GET /api/rosto/saidas). Fica no KV
+// por 30 dias, as 30 mais recentes. O healthz NÃO a mostra (ele é público).
+
+const CHAVE_ERROS = 'rosto-erros';
+export const ERROS_DO_INDEXADOR_MAX = 30;
+const ERROS_DO_INDEXADOR_TTL_S = 30 * 86400;
+
+/** Uma linha só, sem caracteres de controle. @param {unknown} v @param {number} max */
+function linhaDoErro(v, max) {
+  // eslint-disable-next-line no-control-regex
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim().slice(0, max);
+}
+
+/**
+ * Os erros que o indexador mandou, limpos. Aceita no máximo 10 por envio.
+ * @param {unknown} v
+ * @param {string} slug '' quando o erro não é de um álbum (o que parou a execução antes)
+ * @param {string} [quando]
+ */
+export function errosDoIndexadorLimpos(v, slug, quando = new Date().toISOString()) {
+  const lista = Array.isArray(v) ? v : [];
+  /** @type {{ quando: string, slug: string, tipo: string, mensagem: string, vezes: number }[]} */
+  const out = [];
+  for (const it of lista.slice(0, 10)) {
+    if (!it || typeof it !== 'object') continue;
+    const tipo = linhaDoErro(/** @type {any} */ (it).tipo, 80);
+    const mensagem = linhaDoErro(/** @type {any} */ (it).mensagem, 600);
+    if (!tipo && !mensagem) continue;
+    const n = Number(/** @type {any} */ (it).vezes);
+    out.push({ quando, slug, tipo: tipo || 'erro', mensagem, vezes: Number.isFinite(n) && n >= 1 ? Math.min(Math.floor(n), 1e6) : 1 });
+  }
+  return out;
+}
+
+/** @param {{ FOTOS: any }} env */
+export async function leErrosDoIndexador(env) {
+  try {
+    const bruto = await env.FOTOS.get(CHAVE_ERROS);
+    const v = bruto ? JSON.parse(bruto) : null;
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+
+/**
+ * Junta os novos na frente dos guardados, até o máximo.
+ * @param {{ FOTOS: any }} env
+ * @param {ReturnType<typeof errosDoIndexadorLimpos>} novos
+ */
+export async function gravaErrosDoIndexador(env, novos) {
+  if (!novos.length) return 0;
+  const todos = [...novos, ...await leErrosDoIndexador(env)].slice(0, ERROS_DO_INDEXADOR_MAX);
+  await env.FOTOS.put(CHAVE_ERROS, JSON.stringify(todos), { expirationTtl: ERROS_DO_INDEXADOR_TTL_S });
+  return novos.length;
+}

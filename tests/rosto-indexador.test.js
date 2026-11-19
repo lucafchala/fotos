@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { ErroAws } from '../src/aws.js';
-import { estadoDoIndexadorLimpo } from '../src/busca.js';
+import { estadoDoIndexadorLimpo, errosDoIndexadorLimpos, leErrosDoIndexador } from '../src/busca.js';
 import { AQUECE_LARGURAS } from '../src/config.js';
 import { withDurableObjects } from './helpers/do.js';
 import { d1Sqlite } from './helpers/d1.js';
@@ -49,6 +49,8 @@ function mundo(o = {}) {
   const estadosGravados = [];
   /** @type {any[]} */
   const enviosDaBusca = [];
+  /** @type {any[]} */
+  const errosMandados = [];
   // O estado já marca as larguras de hoje (v3.9.3); sem isso, toda execução
   // reaqueceria (ver o teste das larguras novas).
   let estado = { quentesLarguras: AQUECE_LARGURAS.join(','), ...(o.estado || { vistas: [], descritas: [], qualidade: '', origem: 'vazio' }) };
@@ -60,6 +62,10 @@ function mundo(o = {}) {
         if (o.estadoHttp) return new Response('x', { status: o.estadoHttp });
         if (init.method === 'POST') { estado = { ...JSON.parse(init.body), origem: 'guardado' }; estadosGravados.push(JSON.parse(init.body)); return Response.json({ ok: true }); }
         return Response.json(estado);
+      }
+      if (url.pathname === '/api/busca/erro') {
+        if (init.headers['X-Rosto-Indexador'] !== TOKEN) return new Response('x', { status: 404 });
+        errosMandados.push(JSON.parse(init.body)); return Response.json({ ok: true });
       }
       if (url.pathname === '/api/busca/indexar') { enviosDaBusca.push(JSON.parse(init.body)); return Response.json({ ok: true, marcadas: 0, escondidas: 0 }); }
       const cap = url.pathname === `/galeria/${SLUG}` ? '' : url.pathname.replace(`/galeria/${SLUG}/`, '');
@@ -89,7 +95,7 @@ function mundo(o = {}) {
     return new Response('nao esperado', { status: 599 });
   });
   vi.stubGlobal('fetch', f);
-  return { aws, estadosGravados, enviosDaBusca, estadoAtual: () => estado, ops: (/** @type {string} */ op) => aws.filter(c => c.op === op) };
+  return { aws, estadosGravados, enviosDaBusca, errosMandados, estadoAtual: () => estado, ops: (/** @type {string} */ op) => aws.filter(c => c.op === op) };
 }
 
 /** @type {string[]} */
@@ -257,6 +263,44 @@ describe('3. perder o estado ou ler o álbum pela metade não apaga o índice', 
   });
 });
 
+describe('R1. a mensagem inteira do erro vai ao site, em particular, e nunca ao log', () => {
+  it('falhas numa execução: o site recebe tipo, vezes e a 1ª mensagem inteira de cada tipo; o log continua sem segredo', async () => {
+    const m = mundo({ miniatura429: [F(2)], imagemInvalida: [F(3)] });
+    await (await indexador()).principal();
+    semSegredo(log.join('\n'));
+    expect(m.errosMandados).toHaveLength(1);
+    const [envio] = m.errosMandados;
+    expect(envio.slug).toBe(SLUG);
+    const porTipo = Object.fromEntries(envio.erros.map((/** @type {any} */ e) => [e.tipo, e]));
+    expect(porTipo['AWS InvalidImageFormatException'].vezes).toBe(1);
+    // A mensagem que o log não pode levar é justamente a que o dono precisa.
+    expect(porTipo['AWS InvalidImageFormatException'].mensagem).toContain(`fotos-${SLUG}`);
+    expect(porTipo['miniatura HTTP 429'].vezes).toBe(1);
+  });
+
+  it('execução sem falha não manda nada', async () => {
+    const m = mundo();
+    await (await indexador()).principal();
+    expect(m.errosMandados).toHaveLength(0);
+  });
+
+  it('mensagemDoErro segue a causa (o "fetch failed" esconde o ECONNRESET)', async () => {
+    const { mensagemDoErro } = await indexador();
+    const causa = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+    expect(mensagemDoErro(new TypeError('fetch failed', { cause: causa }))).toBe('TypeError: fetch failed ← Error: read ECONNRESET (ECONNRESET)');
+    expect(mensagemDoErro('texto solto')).toBe('texto solto');
+    expect(mensagemDoErro(new Error('x'.repeat(2000))).length).toBe(600);
+  });
+
+  it('o site fora do ar ao mandar os erros não derruba nada e não vaza a mensagem', async () => {
+    const { mandaErros } = await indexador();
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError(`fetch failed ${SITE}/galeria/${SLUG}`); }));
+    await mandaErros(SITE, SLUG, [{ tipo: 'erro', mensagem: F(1), vezes: 1 }]);
+    semSegredo(log.join('\n'));
+    expect(log.join('\n')).toContain('Os erros não foram guardados no site: TypeError.');
+  });
+});
+
 describe('a rota do estado no site (/api/busca/estado)', () => {
   const EVENTO = { id: '1', slug: SLUG, title: 'Álbum', accessType: 'public', galeriaCapitulos: true, comingSoon: true, visible: false, driveUrl: 'https://drive.google.com/drive/folders/RAIZ_PASTA_0001' };
   function kv() {
@@ -306,6 +350,25 @@ describe('a rota do estado no site (/api/busca/estado)', () => {
   it('projeto que não existe: 404; slug inválido: 400', async () => {
     expect((await pede('/api/busca/estado?slug=nao-existe', { token: TOKEN })).status).toBe(404);
     expect((await pede('/api/busca/estado?slug=Com%20Espaco', { token: TOKEN })).status).toBe(400);
+  });
+
+  it('/api/busca/erro: sem o token, 404 e nada gravado; com o token, guarda limpo e o mais novo primeiro', async () => {
+    expect((await pede('/api/busca/erro', { body: { slug: SLUG, erros: [{ tipo: 'x', mensagem: 'y' }] } })).status).toBe(404);
+    expect((await pede('/api/busca/erro', { token: 'x'.repeat(40), body: { slug: SLUG, erros: [{ tipo: 'x', mensagem: 'y' }] } })).status).toBe(404);
+    expect(env.FOTOS._store.has('rosto-erros')).toBe(false);
+    expect((await pede('/api/busca/erro', { token: TOKEN, body: { slug: 'Com Espaco', erros: [] } })).status).toBe(400);
+    const r1 = await pede('/api/busca/erro', { token: TOKEN, body: { slug: SLUG, erros: [{ tipo: 'AWS X', mensagem: 'linha 1\nlinha 2', vezes: 3 }, 'lixo', {}] } });
+    expect(await r1.json()).toEqual({ ok: true, gravados: 1 });
+    await pede('/api/busca/erro', { token: TOKEN, body: { erros: [{ tipo: 'TypeError', mensagem: 'fetch failed' }] } });
+    const guardados = await leErrosDoIndexador(env);
+    expect(guardados.map((/** @type {any} */ e) => [e.slug, e.tipo, e.mensagem, e.vezes])).toEqual([['', 'TypeError', 'fetch failed', 1], [SLUG, 'AWS X', 'linha 1 linha 2', 3]]);
+  });
+
+  it('errosDoIndexadorLimpos: no máximo 10 por envio, mensagem cortada em 600', () => {
+    const muitos = Array.from({ length: 15 }, (_, i) => ({ tipo: `t${i}`, mensagem: 'm'.repeat(1000), vezes: -2 }));
+    const limpos = errosDoIndexadorLimpos(muitos, SLUG, '2026-11-18T00:00:00.000Z');
+    expect(limpos).toHaveLength(10);
+    expect(limpos[0]).toEqual({ quando: '2026-11-18T00:00:00.000Z', slug: SLUG, tipo: 't0', mensagem: 'm'.repeat(600), vezes: 1 });
   });
 
   it('estadoDoIndexadorLimpo: forma, repetição e teto', () => {
